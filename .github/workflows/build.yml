@@ -1,0 +1,74 @@
+name: Build
+
+# Builds an unsigned .ipa on GitHub's free macOS runners. SideStore signs it
+# with the user's own Apple ID when installing, so no certificates or paid
+# Apple account are involved anywhere. The Pi picks the artifact up and
+# publishes it at home.hellupeptic.org/app.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      VERSION: 1.0.${{ github.run_number }}
+      BUILD: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Portal.xcodeproj \
+            -scheme Portal \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: .*Portal/|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/Portal.app
+
+      - name: Package the .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Portal.app Payload/
+          zip -qry "Portal-$VERSION.ipa" Payload
+          ls -la "Portal-$VERSION.ipa"
+          echo "{\"version\":\"$VERSION\",\"build\":$BUILD,\"commit\":\"$GITHUB_SHA\"}" > build-info.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portal-ipa
+          path: |
+            Portal-${{ env.VERSION }}.ipa
+            build-info.json
+          retention-days: 30
+
+      - name: Keep the build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
