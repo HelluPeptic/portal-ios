@@ -7,6 +7,9 @@ name: Build
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - README.md
+      - publish.sh
   workflow_dispatch:
 
 concurrency:

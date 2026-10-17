@@ -20,5 +20,9 @@ runners). The Pi downloads the artifact and publishes it at
 `home.hellupeptic.org/app`, which serves a SideStore source. SideStore signs
 the app with a free Apple ID on the phone, and renews it every 7 days.
 
+To publish the newest successful build on the Pi:
+
+    ./publish.sh
+
 The Xcode project is generated from `project.yml` with XcodeGen, so there's
 no `.xcodeproj` in the repo.
