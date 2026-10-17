@@ -29,7 +29,8 @@ final class CastBridge: NSObject {
     private var session: GCKCastSession? { context.sessionManager.currentCastSession }
     private var client: GCKRemoteMediaClient? { session?.remoteMediaClient }
 
-    /// A "start" waiting for its session to connect before it can load.
+    /// A "start" waiting for its session to connect, to load something or
+    /// (with no media) just to be connected.
     private var pendingStart: (body: [String: Any], reply: Reply)?
     private var requestCallbacks: [Int: (Bool, String?) -> Void] = [:]
 
@@ -72,6 +73,9 @@ final class CastBridge: NSObject {
         case "mute":
             guard let session else { return reply(notConnected, nil) }
             track(session.setDeviceMuted((body["muted"] as? Bool) ?? false), reply: reply)
+        case "stopMedia":
+            // Stops what's playing but stays connected, ready for the next thing.
+            withClient(reply) { $0.stop() }
         case "stop":
             context.sessionManager.endSessionAndStopCasting(true)
             reply(["ok": true], nil)
@@ -123,7 +127,7 @@ final class CastBridge: NSObject {
             return reply(["ok": false, "error": "connect", "message": "That TV isn't on this Wi-Fi any more"], nil)
         }
         if let session, session.device.deviceID == deviceId, session.connectionState == .connected {
-            return load(body, reply: reply)
+            return body["media"] == nil ? reply(["ok": true], nil) : load(body, reply: reply)
         }
         pendingStart?.reply(["ok": false, "error": "replaced", "message": "Started something else"], nil)
         pendingStart = (body, reply)
@@ -227,10 +231,14 @@ final class CastBridge: NSObject {
 
     // MARK: - Status
 
+    /// What this build supports, so the site can tell old builds from new.
+    private static let features = ["connect"]
+
     private func status() -> [String: Any] {
-        guard let session, session.connectionState == .connected else { return ["connected": false] }
+        guard let session, session.connectionState == .connected else { return ["connected": false, "features": Self.features] }
         var out: [String: Any] = [
             "connected": true,
+            "features": Self.features,
             "deviceId": session.device.deviceID,
             "deviceName": session.device.friendlyName ?? "Chromecast",
             "volume": session.currentDeviceVolume,
@@ -316,6 +324,8 @@ extension CastBridge: GCKSessionManagerListener {
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKCastSession) {
         guard let pending = pendingStart else { return }
         pendingStart = nil
+        // Just connecting: the TV shows its Cast screen until something plays.
+        if pending.body["media"] == nil { return pending.reply(["ok": true], nil) }
         load(pending.body, reply: pending.reply)
     }
 

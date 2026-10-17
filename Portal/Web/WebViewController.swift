@@ -30,15 +30,29 @@ final class WebViewController: UIViewController {
         // Keeps the usual "Mobile/..." token so the site still sees a phone.
         config.applicationNameForUserAgent = "Mobile/15E148 PortalApp/\(AppInfo.version)"
         config.userContentController.addScriptMessageHandler(CastBridge.shared, contentWorld: .page, name: "portalCast")
-        let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) };",
+        let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) }; document.documentElement.classList.add('portal-app');",
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
+        // Feels like an app rather than a web page: no pinch or double-tap
+        // zoom (text fields are 16px on phones, so iOS doesn't zoom into them).
+        let noZoom = WKUserScript(source: """
+            (function () {
+                function apply() {
+                    var meta = document.querySelector('meta[name=viewport]');
+                    if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; (document.head || document.documentElement).appendChild(meta); }
+                    meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+                }
+                if (document.head) apply(); else document.addEventListener('DOMContentLoaded', apply);
+            })();
+            """, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        config.userContentController.addUserScript(noZoom)
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = false
+        webView.scrollView.keyboardDismissMode = .interactive
         webView.isOpaque = false
         webView.backgroundColor = .portalBackground
         webView.scrollView.backgroundColor = .portalBackground
@@ -217,10 +231,13 @@ final class WebViewController: UIViewController {
         if let expiry = AppInfo.expiryDate {
             let days = expiry.timeIntervalSinceNow / 86400
             if days < 2 {
-                let text = days <= 0
-                    ? "Portal's signature has run out. Refresh it in SideStore."
-                    : days < 1 ? "Portal needs a refresh in SideStore today." : "Portal needs a refresh in SideStore within 2 days."
-                showBanner(.expiry, text: text, button: "Open SideStore")
+                // Installed through SideStore it refreshes there; installed
+                // straight from a computer (iloader) it gets installed again.
+                let viaSideStore = UIApplication.shared.canOpenURL(Portal.sideStoreURL)
+                let text = viaSideStore
+                    ? "Portal needs a refresh in SideStore \(days < 1 ? "today" : "within 2 days")."
+                    : "Portal stops opening \(days < 1 ? "within a day" : "in under 2 days"). Install it again from your computer to keep it."
+                showBanner(.expiry, text: text, button: viaSideStore ? "Open SideStore" : "How")
                 return
             }
         }
