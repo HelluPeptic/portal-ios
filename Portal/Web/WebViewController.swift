@@ -50,7 +50,9 @@ final class WebViewController: UIViewController {
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.allowsBackForwardNavigationGestures = true
+        // Pages change from the site's own tab bar, not by swiping in from
+        // the edge (that went back through every page and folder visited).
+        webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         webView.scrollView.keyboardDismissMode = .interactive
         webView.isOpaque = false
