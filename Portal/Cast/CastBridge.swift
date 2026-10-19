@@ -1,4 +1,4 @@
-import Foundation
+import UIKit
 import WebKit
 import GoogleCast
 
@@ -20,9 +20,15 @@ final class CastBridge: NSObject {
         // iOS asks for Local Network access), not app launch.
         options.disableDiscoveryAutostart = true
         options.startDiscoveryAfterFirstTapOnCastButton = false
+        // Stays connected while the app is in the background instead of
+        // letting go of the TV and picking it back up later: a Chromecast
+        // left with no phone connected throws away a paused video.
+        // CastKeepAlive keeps the app running meanwhile.
+        options.suspendSessionsWhenBackgrounded = false
         GCKCastContext.setSharedInstanceWith(options)
         GCKLogger.sharedInstance().loggingEnabled = false
         GCKCastContext.sharedInstance().sessionManager.add(shared)
+        shared.watchAppState()
     }
 
     private var context: GCKCastContext { GCKCastContext.sharedInstance() }
@@ -44,7 +50,11 @@ final class CastBridge: NSObject {
             startDiscovery()
             reply(["devices": deviceList()], nil)
         case "stopDiscovery":
-            if session == nil { context.discoveryManager.stopDiscovery() }
+            // Kept going while connected or reconnecting: the Cast SDK only
+            // gets a dropped connection back once it sees the TV again.
+            if session == nil, pendingStart == nil, context.sessionManager.connectionState == .disconnected {
+                context.discoveryManager.stopDiscovery()
+            }
             reply(["ok": true], nil)
         case "start":
             start(body, reply: reply)
@@ -77,6 +87,7 @@ final class CastBridge: NSObject {
             // Stops what's playing but stays connected, ready for the next thing.
             withClient(reply) { $0.stop() }
         case "stop":
+            UserDefaults.standard.removeObject(forKey: Self.castingKey)
             context.sessionManager.endSessionAndStopCasting(true)
             reply(["ok": true], nil)
         default:
@@ -282,6 +293,88 @@ final class CastBridge: NSObject {
         }
     }
 
+    // MARK: - Leaving the app
+
+    private let keepAlive = CastKeepAlive()
+    private var keepAliveTimer: Timer?
+    private var pausedSince: Date?
+    private var idleChecks = 0
+    /// The TV this phone is casting to, kept across launches.
+    private static let castingKey = "castingDeviceId"
+
+    private func watchAppState() {
+        let center = NotificationCenter.default
+        // Resigning active comes first (and also covers locking the phone);
+        // the sound has to start while the app is still in front.
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.leaving() }
+        }
+        center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.back()
+        }
+        // The app was closed or ended by iOS while casting: the Cast SDK
+        // reconnects to that TV once discovery sees it.
+        if UserDefaults.standard.string(forKey: Self.castingKey) != nil { startDiscovery() }
+    }
+
+    /// A video is on the TV: playing, paused or about to play.
+    private var videoOnTV: Bool {
+        guard let session, session.connectionState == .connected, let state = client?.mediaStatus?.playerState else { return false }
+        return state == .playing || state == .paused || state == .buffering || state == .loading
+    }
+
+    private func leaving() {
+        guard videoOnTV, !keepAlive.isRunning else { return }
+        keepAlive.start()
+        guard keepAlive.isRunning else { return }
+        pausedSince = nil
+        idleChecks = 0
+        keepAliveTimer?.invalidate()
+        keepAliveTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.checkKeepAlive()
+        }
+    }
+
+    /// Lets the app be frozen once there's nothing left to stay connected
+    /// for: the video ended or was stopped, the TV went, or it has been
+    /// paused for half an hour (a Chromecast gives up on a paused video
+    /// after 20 minutes anyway).
+    private func checkKeepAlive() {
+        let state = session?.connectionState == .connected ? client?.mediaStatus?.playerState : nil
+        if state == .playing || state == .buffering || state == .loading {
+            pausedSince = nil
+            idleChecks = 0
+            return
+        }
+        if state == .paused {
+            idleChecks = 0
+            let since = pausedSince ?? Date()
+            pausedSince = since
+            if Date().timeIntervalSince(since) < 30 * 60 { return }
+        } else {
+            // It's idle for a moment between two episodes.
+            idleChecks += 1
+            if idleChecks < 3 { return }
+        }
+        stopKeepAlive()
+    }
+
+    private func stopKeepAlive() {
+        keepAliveTimer?.invalidate()
+        keepAliveTimer = nil
+        pausedSince = nil
+        keepAlive.stop()
+    }
+
+    private func back() {
+        stopKeepAlive()
+        // If the connection went while away, the Cast SDK picks it back up
+        // once it sees the TV again, so look for it.
+        if session != nil || UserDefaults.standard.string(forKey: Self.castingKey) != nil {
+            startDiscovery()
+        }
+    }
+
     // MARK: - Requests
 
     private func withClient(_ reply: @escaping Reply, _ action: (GCKRemoteMediaClient) -> GCKRequest) {
@@ -322,11 +415,21 @@ extension CastBridge: WKScriptMessageHandlerWithReply {
 
 extension CastBridge: GCKSessionManagerListener {
     func sessionManager(_ sessionManager: GCKSessionManager, didStart session: GCKCastSession) {
+        UserDefaults.standard.set(session.device.deviceID, forKey: Self.castingKey)
         guard let pending = pendingStart else { return }
         pendingStart = nil
         // Just connecting: the TV shows its Cast screen until something plays.
         if pending.body["media"] == nil { return pending.reply(["ok": true], nil) }
         load(pending.body, reply: pending.reply)
+    }
+
+    func sessionManager(_ sessionManager: GCKSessionManager, didResume session: GCKCastSession) {
+        UserDefaults.standard.set(session.device.deviceID, forKey: Self.castingKey)
+    }
+
+    func sessionManager(_ sessionManager: GCKSessionManager, didEnd session: GCKCastSession, withError error: Error?) {
+        UserDefaults.standard.removeObject(forKey: Self.castingKey)
+        stopKeepAlive()
     }
 
     func sessionManager(_ sessionManager: GCKSessionManager, didFailToStart session: GCKCastSession, withError error: Error) {
