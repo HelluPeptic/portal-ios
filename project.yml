@@ -27,8 +27,8 @@ targets:
     info:
       path: Portal/Info.plist
       properties:
-        CFBundleDisplayName: Portal
-        CFBundleName: Portal
+        CFBundleDisplayName: Peptic's Workshop
+        CFBundleName: Peptic's Workshop
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
@@ -59,7 +59,7 @@ targets:
         NSBonjourServices:
           - _googlecast._tcp
           - _CC1AD845._googlecast._tcp
-        NSLocalNetworkUsageDescription: Portal looks for Chromecasts and Google TVs on your Wi-Fi so you can play videos on them.
+        NSLocalNetworkUsageDescription: Peptic's Workshop looks for Chromecasts and Google TVs on your Wi-Fi so you can play videos on them.
         # The site's file pickers can offer the camera; without these the app would crash when that's picked.
         NSCameraUsageDescription: Lets you take a photo or video to upload.
         NSMicrophoneUsageDescription: Lets you record a video with sound to upload.

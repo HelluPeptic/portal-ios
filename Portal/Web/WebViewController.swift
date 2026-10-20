@@ -3,9 +3,10 @@ import WebKit
 import SafariServices
 
 /// The whole app is the site in a web view, plus what a browser tab can't
-/// do: Chromecast casting (see CastBridge), native pop-ups for the site's
-/// confirm()/prompt() dialogs, downloads to the share sheet, and a notice
-/// before the free signature runs out.
+/// do: Chromecast casting (see CastBridge), movies and episodes saved to
+/// watch without a connection (see OfflineStore), native pop-ups for the
+/// site's confirm()/prompt() dialogs, other downloads to the share sheet,
+/// and a notice before the free signature runs out.
 final class WebViewController: UIViewController {
     private var webView: WKWebView!
     private let loadingBar = UIProgressView(progressViewStyle: .bar)
@@ -32,6 +33,7 @@ final class WebViewController: UIViewController {
         // Keeps the usual "Mobile/..." token so the site still sees a phone.
         config.applicationNameForUserAgent = "Mobile/15E148 PortalApp/\(AppInfo.version)"
         config.userContentController.addScriptMessageHandler(CastBridge.shared, contentWorld: .page, name: "portalCast")
+        config.userContentController.addScriptMessageHandler(OfflineBridge.shared, contentWorld: .page, name: "portalDownloads")
         let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) }; document.documentElement.classList.add('portal-app');",
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
@@ -108,6 +110,15 @@ final class WebViewController: UIViewController {
             self?.updateLoadingBar(Float(webView.estimatedProgress))
         })
         banner.onAction = { [weak self] in self?.bannerAction() }
+        OfflineBridge.shared.showList = { [weak self] in self?.showDownloads() }
+        OfflineBridge.shared.play = { [weak self] item in
+            guard let self else { return }
+            OfflinePlayback.play(item, from: self.topPresented())
+        }
+        // Where a download was left goes to the site (see spa-shell.js).
+        OfflinePlayback.onClose = { [weak self] in
+            self?.webView.evaluateJavaScript("window.__portalSyncOffline && window.__portalSyncOffline()", completionHandler: nil)
+        }
 
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
@@ -162,6 +173,20 @@ final class WebViewController: UIViewController {
         }
     }
 
+    // MARK: - Downloads
+
+    private func showDownloads() {
+        let top = topPresented()
+        if let nav = top as? UINavigationController, nav.viewControllers.first is DownloadsViewController { return }
+        top.present(DownloadsViewController.inSheet(), animated: true)
+    }
+
+    private func topPresented() -> UIViewController {
+        var top: UIViewController = self
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+
     // MARK: - Links that leave the site
 
     private func openOutside(_ url: URL) {
@@ -208,6 +233,16 @@ final class WebViewController: UIViewController {
         [title, detail, button].forEach(box.addArrangedSubview)
         box.setCustomSpacing(24, after: detail)
 
+        // No connection is what downloads are for.
+        if OfflineStore.shared.items.contains(where: { $0.state == .done }) {
+            var downloadsConfig = UIButton.Configuration.plain()
+            downloadsConfig.title = "Watch downloads"
+            downloadsConfig.baseForegroundColor = .portalAccent
+            downloadsConfig.image = UIImage(systemName: "arrow.down.circle")
+            downloadsConfig.imagePadding = 8
+            box.addArrangedSubview(UIButton(configuration: downloadsConfig, primaryAction: UIAction { [weak self] _ in self?.showDownloads() }))
+        }
+
         let overlay = UIView()
         overlay.backgroundColor = .portalBackground
         overlay.translatesAutoresizingMaskIntoConstraints = false
@@ -251,8 +286,8 @@ final class WebViewController: UIViewController {
                 // straight from a computer (iloader) it gets installed again.
                 let viaSideStore = UIApplication.shared.canOpenURL(Portal.sideStoreURL)
                 let text = viaSideStore
-                    ? "Portal needs a refresh in SideStore \(days < 1 ? "today" : "within 2 days")."
-                    : "Portal stops opening \(days < 1 ? "within a day" : "in under 2 days"). Install it again from your computer to keep it."
+                    ? "The app needs a refresh in SideStore \(days < 1 ? "today" : "within 2 days")."
+                    : "The app stops opening \(days < 1 ? "within a day" : "in under 2 days"). Install it again from your computer to keep it."
                 showBanner(.expiry, text: text, button: viaSideStore ? "Open SideStore" : "How")
                 return
             }
@@ -267,7 +302,7 @@ final class WebViewController: UIViewController {
                   UserDefaults.standard.integer(forKey: Self.dismissedUpdateKey) != latest else { return }
             DispatchQueue.main.async {
                 self?.offeredBuild = latest
-                self?.showBanner(.update, text: "A new version of Portal is ready.", button: "Update")
+                self?.showBanner(.update, text: "A new version of the app is ready.", button: "Update")
             }
         }.resume()
     }
@@ -371,11 +406,12 @@ extension WebViewController: WKNavigationDelegate {
         let nsError = error as NSError
         // Cancelled (another load started) or turned into a download: not a failure.
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
-        if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
-        if nsError.domain == NSURLErrorDomain {
-            loadingCover.hide()
-            showError("Check that you're online, then try again.")
-        }
+        // 102: became a download; 204: handled by a plug-in.
+        if nsError.domain == "WebKitErrorDomain" && (nsError.code == 102 || nsError.code == 204) { return }
+        // Anything else stops the page (offline, a load the site's service
+        // worker couldn't make): without this the spinner would stay up.
+        loadingCover.hide()
+        showError("Check that you're online, then try again.")
     }
 
     // The page's process can be killed in the background (memory); bring it back.
