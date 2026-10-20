@@ -9,6 +9,8 @@ import SafariServices
 final class WebViewController: UIViewController {
     private var webView: WKWebView!
     private let loadingBar = UIProgressView(progressViewStyle: .bar)
+    /// The spinning devil head over everything while the site loads.
+    private let loadingCover = LoadingCover()
     private let banner = StatusBanner()
     private var errorView: UIView?
     private var observations: [NSKeyValueObservation] = []
@@ -66,6 +68,9 @@ final class WebViewController: UIViewController {
         webView.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(webView)
 
+        loadingCover.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(loadingCover)
+
         loadingBar.translatesAutoresizingMaskIntoConstraints = false
         loadingBar.progressTintColor = .portalAccent
         loadingBar.trackTintColor = .clear
@@ -82,6 +87,10 @@ final class WebViewController: UIViewController {
             webView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
             webView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            loadingCover.topAnchor.constraint(equalTo: root.topAnchor),
+            loadingCover.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            loadingCover.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            loadingCover.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             loadingBar.topAnchor.constraint(equalTo: safe.topAnchor),
             loadingBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             loadingBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -104,6 +113,7 @@ final class WebViewController: UIViewController {
         center.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
 
+        loadingCover.show()
         webView.load(URLRequest(url: startURL()))
         checkAppStatus()
     }
@@ -143,6 +153,9 @@ final class WebViewController: UIViewController {
             UIView.animate(withDuration: 0.25, delay: 0.15) { self.loadingBar.alpha = 0 } completion: { _ in
                 self.loadingBar.setProgress(0, animated: false)
             }
+        } else if loadingCover.isShowing {
+            // The devil head is already saying it's loading.
+            loadingBar.alpha = 0
         } else {
             loadingBar.alpha = 1
             loadingBar.setProgress(max(progress, 0.08), animated: true)
@@ -215,6 +228,7 @@ final class WebViewController: UIViewController {
     private func retry() {
         errorView?.removeFromSuperview()
         errorView = nil
+        loadingCover.show()
         if webView.url == nil || !Portal.isSite(webView.url) {
             webView.load(URLRequest(url: startURL()))
         } else {
@@ -342,6 +356,7 @@ extension WebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         errorView?.removeFromSuperview()
         errorView = nil
+        loadingCover.hide()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -358,12 +373,14 @@ extension WebViewController: WKNavigationDelegate {
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
         if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
         if nsError.domain == NSURLErrorDomain {
+            loadingCover.hide()
             showError("Check that you're online, then try again.")
         }
     }
 
     // The page's process can be killed in the background (memory); bring it back.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        loadingCover.show()
         webView.reload()
     }
 }
