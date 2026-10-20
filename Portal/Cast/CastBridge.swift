@@ -317,10 +317,18 @@ final class CastBridge: NSObject {
         if UserDefaults.standard.string(forKey: Self.castingKey) != nil { startDiscovery() }
     }
 
-    /// A video is on the TV: playing, paused or about to play.
+    /// A video is on the TV: playing, paused or about to play. Not the
+    /// picture the site shows there while nothing plays.
     private var videoOnTV: Bool {
-        guard let session, session.connectionState == .connected, let state = client?.mediaStatus?.playerState else { return false }
+        guard let session, session.connectionState == .connected, let status = client?.mediaStatus else { return false }
+        if showingPicture(status) { return false }
+        let state = status.playerState
         return state == .playing || state == .paused || state == .buffering || state == .loading
+    }
+
+    private func showingPicture(_ status: GCKMediaStatus) -> Bool {
+        let type: String? = status.mediaInformation?.contentType
+        return type?.hasPrefix("image/") ?? false
     }
 
     private func leaving() {
@@ -340,7 +348,8 @@ final class CastBridge: NSObject {
     /// paused for half an hour (a Chromecast gives up on a paused video
     /// after 20 minutes anyway).
     private func checkKeepAlive() {
-        let state = session?.connectionState == .connected ? client?.mediaStatus?.playerState : nil
+        let status = session?.connectionState == .connected ? client?.mediaStatus : nil
+        let state = status.flatMap { showingPicture($0) ? nil : $0.playerState }
         if state == .playing || state == .buffering || state == .loading {
             pausedSince = nil
             idleChecks = 0

@@ -278,6 +278,11 @@ final class WebViewController: UIViewController {
     }
 
     private func bannerAction() {
+        // A new version: the app's page, which says how to get it.
+        if bannerKind == .update {
+            openOutside(URL(string: "?update=1", relativeTo: Portal.appPageURL)?.absoluteURL ?? Portal.appPageURL)
+            return
+        }
         if UIApplication.shared.canOpenURL(Portal.sideStoreURL) {
             UIApplication.shared.open(Portal.sideStoreURL)
         } else {
