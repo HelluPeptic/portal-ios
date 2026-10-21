@@ -38,13 +38,16 @@ final class WebViewController: UIViewController {
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
         // Feels like an app rather than a web page: no pinch or double-tap
-        // zoom (text fields are 16px on phones, so iOS doesn't zoom into them).
+        // zoom (text fields are 16px on phones, so iOS doesn't zoom into them),
+        // and the page runs under the clock and the home bar, so its own
+        // background and tab bar reach the edges of the screen. The site
+        // keeps its content clear of them (--safe-top in workshop.css).
         let noZoom = WKUserScript(source: """
             (function () {
                 function apply() {
                     var meta = document.querySelector('meta[name=viewport]');
                     if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; (document.head || document.documentElement).appendChild(meta); }
-                    meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no';
+                    meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
                 }
                 if (document.head) apply(); else document.addEventListener('DOMContentLoaded', apply);
             })();
@@ -63,6 +66,8 @@ final class WebViewController: UIViewController {
         webView.backgroundColor = .portalBackground
         webView.scrollView.backgroundColor = .portalBackground
         webView.underPageBackgroundColor = .portalBackground
+        // The page leaves room for the clock and home bar itself.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         if #available(iOS 16.4, *) { webView.isInspectable = true }
 
         let root = UIView()
@@ -85,10 +90,10 @@ final class WebViewController: UIViewController {
 
         let safe = root.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: safe.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            webView.topAnchor.constraint(equalTo: root.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             loadingCover.topAnchor.constraint(equalTo: root.topAnchor),
             loadingCover.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             loadingCover.leadingAnchor.constraint(equalTo: root.leadingAnchor),
