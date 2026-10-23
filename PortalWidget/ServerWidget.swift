@@ -5,11 +5,12 @@ import Charts
 
 /// The Pi at a glance on the home screen or lock screen: the Dashboard's
 /// numbers from /api/widget/stats. iOS decides how often a widget may
-/// refresh (every few minutes at best), so it asks every 5 minutes, the app
-/// has it refresh whenever you leave it, and on iOS 17 the refresh button
-/// does it at once. What's relative to now (how long ago, uptime) counts
-/// on by itself in between. When the Pi doesn't answer it says so, and
-/// tells that apart from the phone itself being offline.
+/// refresh (every 15 to 60 minutes in practice), so it asks every 5
+/// minutes, the app has it refresh whenever you leave it, and on iOS 17 the
+/// refresh button does it at once. New numbers roll in and the bars and
+/// lines glide to them; "how long ago" counts on by itself in between.
+/// When the Pi doesn't answer it says so, and tells that apart from the
+/// phone itself being offline.
 
 /// The Dashboard: three sizes on the home screen, and a line or two on the
 /// lock screen.
@@ -77,10 +78,11 @@ struct GaugeWidgetView: View {
                     .font(.system(size: 10, weight: .semibold))
                 Text(reading.value)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .contentTransition(.numericText())
+                    .rolling(reading.share)
             }
         }
         .gaugeStyle(.accessoryCircularCapacity)
+        .animation(.widgetUpdate, value: reading.share)
         .widgetBackground()
         .widgetURL(URL(string: "pepticworkshop://dashboard"))
     }
@@ -206,6 +208,22 @@ private extension View {
             background(Palette.background)
         }
     }
+
+    /// A number that rolls up or down to its new value when the widget
+    /// updates, and shimmers while the refresh button fetches it.
+    @ViewBuilder func rolling(_ value: Double?) -> some View {
+        if #available(iOS 17.0, *) {
+            contentTransition(.numericText(value: value ?? 0)).invalidatableContent()
+        } else {
+            contentTransition(.numericText())
+        }
+    }
+}
+
+private extension Animation {
+    /// How bars, gauges and lines move to new numbers: quick to start,
+    /// gentle to settle (iOS caps a widget's animations at 2 seconds).
+    static let widgetUpdate = Animation.spring(response: 1.1, dampingFraction: 0.86)
 }
 
 struct ServerWidgetView: View {
@@ -289,7 +307,8 @@ struct ServerWidgetView: View {
                     Text(temperatureText)
                         .font(.caption.weight(.bold).monospacedDigit())
                         .foregroundStyle(temperatureColor)
-                        .contentTransition(.numericText())
+                        .rolling(stats.temperature)
+                    refreshButton(size: 18)
                 }
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: -2) {
@@ -297,7 +316,7 @@ struct ServerWidgetView: View {
                         Text(cpuText)
                             .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundStyle(Palette.text)
-                            .contentTransition(.numericText())
+                            .rolling(stats.cpuPercent)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                     }
@@ -313,6 +332,7 @@ struct ServerWidgetView: View {
                 Text("↓ \(StatsFormat.speed(stats.network.down))  ↑ \(StatsFormat.speed(stats.network.up))")
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(Palette.dim)
+                    .rolling(stats.network.down)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -373,7 +393,7 @@ struct ServerWidgetView: View {
                         Text(cpuText)
                             .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundStyle(Palette.text)
-                            .contentTransition(.numericText())
+                            .rolling(stats.cpuPercent)
                             .lineLimit(1)
                         if let points = cpuPoints(stats) {
                             sparkline(points, color: cpuColor, domain: cpuDomain(points))
@@ -382,6 +402,7 @@ struct ServerWidgetView: View {
                         Text(stats.load.map { String(format: "Load %.2f", $0) } ?? "")
                             .font(.system(size: 10).monospacedDigit())
                             .foregroundStyle(Palette.dim)
+                            .rolling(stats.load)
                     }
                     .frame(width: 96, alignment: .leading)
                     VStack(alignment: .leading, spacing: 7) {
@@ -408,10 +429,10 @@ struct ServerWidgetView: View {
                 topLine
                 Group {
                     HStack(spacing: 7) {
-                        statCard("CPU", cpuText, color: cpuColor)
-                        statCard("Temp", temperatureText, color: temperatureColor)
-                        statCard("Load", stats.load.map { String(format: "%.2f", $0) } ?? "-", color: Palette.text)
-                        statCard("Up", uptimeText(stats), color: Palette.text)
+                        statCard("CPU", cpuText, number: stats.cpuPercent, color: cpuColor)
+                        statCard("Temp", temperatureText, number: stats.temperature, color: temperatureColor)
+                        statCard("Load", stats.load.map { String(format: "%.2f", $0) } ?? "-", number: stats.load, color: Palette.text)
+                        statCard("Up", uptimeText(stats), number: stats.uptime, color: Palette.text)
                     }
                     bar("RAM", StatsFormat.bytes(stats.memory.used) + " of " + StatsFormat.bytes(stats.memory.total),
                         share: stats.memory.share, color: memoryColor(stats))
@@ -484,7 +505,7 @@ struct ServerWidgetView: View {
                 Text(temperatureText)
                     .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(temperatureColor)
-                    .contentTransition(.numericText())
+                    .rolling(stats?.temperature)
                     .padding(.trailing, 2)
                 Text(stats?.name ?? "")
                     .font(.caption2)
@@ -498,13 +519,15 @@ struct ServerWidgetView: View {
         HStack(spacing: 8) {
             if !entry.isDown {
                 Label(StatsFormat.speed(stats.network.down), systemImage: "arrow.down")
+                    .rolling(stats.network.down)
                 Label(StatsFormat.speed(stats.network.up), systemImage: "arrow.up")
+                    .rolling(stats.network.up)
             }
             Spacer(minLength: 0)
             (Text(entry.state == .serverDown ? "Last seen " : "") + Text(stats.at, style: .relative) + Text(" ago"))
                 .foregroundStyle(entry.state == .serverDown ? Palette.text : Palette.dim)
                 .multilineTextAlignment(.trailing)
-            refreshButton
+            refreshButton()
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(Palette.dim)
@@ -512,13 +535,14 @@ struct ServerWidgetView: View {
         .lineLimit(1)
     }
 
-    @ViewBuilder private var refreshButton: some View {
+    /// Fetches at once (iOS 17); the numbers shimmer until they're in.
+    @ViewBuilder private func refreshButton(size: CGFloat = 22) -> some View {
         if #available(iOS 17.0, *) {
             Button(intent: RefreshStatsIntent()) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.caption2.weight(.bold))
+                    .font(.system(size: size * 0.5, weight: .bold))
                     .foregroundStyle(Palette.text)
-                    .frame(width: 22, height: 22)
+                    .frame(width: size, height: size)
                     .background(Circle().fill(Palette.track))
             }
             .buttonStyle(.plain)
@@ -526,13 +550,13 @@ struct ServerWidgetView: View {
     }
 
     /// A labelled figure on a card, for the large widget's top row.
-    private func statCard(_ label: String, _ value: String, color: Color) -> some View {
+    private func statCard(_ label: String, _ value: String, number: Double?, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.caption2).foregroundStyle(Palette.dim)
             Text(value)
                 .font(.system(size: 18, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(color)
-                .contentTransition(.numericText())
+                .rolling(number)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -550,7 +574,7 @@ struct ServerWidgetView: View {
                 Text(detail)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(Palette.dim)
-                    .contentTransition(.numericText())
+                    .rolling(share)
                     .lineLimit(1)
             }
             meter(share, color: color)
@@ -566,7 +590,7 @@ struct ServerWidgetView: View {
                 Text(value)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(Palette.dim)
-                    .contentTransition(.numericText())
+                    .rolling(share)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -580,6 +604,7 @@ struct ServerWidgetView: View {
                 Capsule().fill(Palette.track)
                 Capsule().fill(color).frame(width: max(height, geo.size.width * min(1, max(0, share))))
             }
+            .animation(.widgetUpdate, value: share)
         }
         .frame(height: height)
     }
@@ -588,8 +613,10 @@ struct ServerWidgetView: View {
     private func sparkline(_ points: [(Double, Double)], color: Color, domain: ClosedRange<Double>) -> some View {
         let low = min(domain.lowerBound, (points.map(\.1).min() ?? domain.lowerBound) - 2)
         let high = max(domain.upperBound, (points.map(\.1).max() ?? domain.upperBound) + 2)
+        // Each point keeps its identity by its time, so on an update the
+        // line slides left and the new minutes come in at the right.
         return Chart {
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+            ForEach(points, id: \.0) { point in
                 AreaMark(x: .value("Time", Date(timeIntervalSince1970: point.0)),
                          yStart: .value("Base", low), yEnd: .value("Value", point.1))
                     .foregroundStyle(LinearGradient(colors: [color.opacity(0.35), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
@@ -603,6 +630,7 @@ struct ServerWidgetView: View {
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartYScale(domain: low...high)
+        .animation(.widgetUpdate, value: points.last?.0)
     }
 
     /// The last hour with what it shows and the latest value above it.
@@ -614,6 +642,7 @@ struct ServerWidgetView: View {
                 Text(points.last.map { "\(Int($0.1.rounded()))\(unit)" } ?? "-")
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(Palette.text)
+                    .rolling(points.last?.1)
             }
             sparkline(points, color: color, domain: domain)
                 .frame(height: height)
