@@ -19,7 +19,10 @@ final class WidgetPreviewTests: XCTestCase {
         hot.cpuPercent = 91
         hot.disks[1].used = hot.disks[1].total * 0.96
         let busy = StatsEntry(date: Date(), stats: hot, state: .live)
-        let offline = StatsEntry(date: Date(), stats: stats, state: .offline)
+        var earlier = stats
+        earlier.at = Date().addingTimeInterval(-14 * 60)
+        let serverDown = StatsEntry(date: Date(), stats: earlier, state: .serverDown)
+        let noInternet = StatsEntry(date: Date(), stats: earlier, state: .noInternet)
         let unconnected = StatsEntry(date: Date(), stats: nil, state: .notConnected)
 
         // Home screen, iPhone sizes in points.
@@ -30,7 +33,10 @@ final class WidgetPreviewTests: XCTestCase {
         save("home-medium", homeScreen(ServerWidgetView(entry: live, familyOverride: .systemMedium), size: medium))
         save("home-large", homeScreen(ServerWidgetView(entry: live, familyOverride: .systemLarge), size: large))
         save("home-medium-busy", homeScreen(ServerWidgetView(entry: busy, familyOverride: .systemMedium), size: medium))
-        save("home-small-offline", homeScreen(ServerWidgetView(entry: offline, familyOverride: .systemSmall), size: small))
+        save("home-small-offline", homeScreen(ServerWidgetView(entry: serverDown, familyOverride: .systemSmall), size: small))
+        save("home-small-nointernet", homeScreen(ServerWidgetView(entry: noInternet, familyOverride: .systemSmall), size: small))
+        save("home-medium-offline", homeScreen(ServerWidgetView(entry: serverDown, familyOverride: .systemMedium), size: medium))
+        save("home-large-offline", homeScreen(ServerWidgetView(entry: serverDown, familyOverride: .systemLarge), size: large))
         save("home-small-unconnected", homeScreen(ServerWidgetView(entry: unconnected, familyOverride: .systemSmall), size: small))
 
         // Lock screen: white on the wallpaper, like iOS draws them.
@@ -38,6 +44,9 @@ final class WidgetPreviewTests: XCTestCase {
             save("lock-gauge-\(metric)", lockScreen(GaugeWidgetView(entry: live, metric: metric), size: CGSize(width: 76, height: 76)))
         }
         save("lock-rectangular", lockScreen(ServerWidgetView(entry: live, familyOverride: .accessoryRectangular), size: CGSize(width: 172, height: 76)))
+        save("lock-rectangular-offline", lockScreen(ServerWidgetView(entry: serverDown, familyOverride: .accessoryRectangular), size: CGSize(width: 172, height: 76)))
+        save("lock-gauge-offline", lockScreen(GaugeWidgetView(entry: serverDown, metric: .cpu), size: CGSize(width: 76, height: 76)))
+        save("lock-inline-offline", lockScreen(ServerWidgetView(entry: serverDown, familyOverride: .accessoryInline), size: CGSize(width: 260, height: 26)))
         save("lock-inline", lockScreen(ServerWidgetView(entry: live, familyOverride: .accessoryInline), size: CGSize(width: 260, height: 26)))
     }
 

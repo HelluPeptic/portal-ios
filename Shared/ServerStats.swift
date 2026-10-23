@@ -53,12 +53,21 @@ struct ServerStats: Codable, Equatable {
     var history: [Point]?
     var services: [Service]?
 
+    enum FetchError: Error {
+        /// The site doesn't know the token (it was made again).
+        case rejected
+        /// An answer, but not from the Pi: Cloudflare or nginx with the Pi down.
+        case server(Int)
+    }
+
     /// Fetches the latest from the site with the widget's token.
     static func fetch(token: String) async throws -> ServerStats {
         var request = URLRequest(url: SharedStore.statsURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 { throw FetchError.rejected }
+        guard status == 200 else { throw FetchError.server(status) }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let text = try decoder.singleValueContainer().decode(String.self)
@@ -67,6 +76,16 @@ struct ServerStats: Codable, Equatable {
             return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text) ?? Date()
         }
         return try decoder.decode(ServerStats.self, from: data)
+    }
+
+    /// Whether this phone can reach the internet at all (Apple's own page
+    /// for checking that), to tell the Pi being down from the phone being
+    /// offline.
+    static func internetReachable() async -> Bool {
+        let request = URLRequest(url: URL(string: "https://captive.apple.com/hotspot-detect.html")!,
+                                 cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 6)
+        guard let result = try? await URLSession.shared.data(for: request) else { return false }
+        return (result.1 as? HTTPURLResponse)?.statusCode == 200
     }
 
     /// Something like the Dashboard would show, for when the widget hasn't
