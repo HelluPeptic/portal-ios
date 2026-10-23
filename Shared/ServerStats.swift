@@ -62,7 +62,12 @@ struct ServerStats: Codable, Equatable {
 
     /// Fetches the latest from the site with the widget's token.
     static func fetch(token: String) async throws -> ServerStats {
-        var request = URLRequest(url: SharedStore.statsURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
+        try await get(SharedStore.statsURL, token: token, timeout: 12)
+    }
+
+    /// One of the widgets' feeds on the site (/api/widget/...).
+    static func get<T: Decodable>(_ url: URL, token: String, timeout: TimeInterval) async throws -> T {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -75,7 +80,7 @@ struct ServerStats: Codable, Equatable {
             withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text) ?? Date()
         }
-        return try decoder.decode(ServerStats.self, from: data)
+        return try decoder.decode(T.self, from: data)
     }
 
     /// Whether this phone can reach the internet at all (Apple's own page

@@ -51,7 +51,7 @@ builds.append({
     'file': name,
     'size': os.path.getsize(os.path.join(app_dir, name)),
     'notes': notes,
-    'minOS': '16.0'
+    'minOS': '16.2'
 })
 builds.sort(key=lambda b: int(b['build']))
 for old in builds[:-3]:

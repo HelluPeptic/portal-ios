@@ -84,7 +84,6 @@ struct GaugeWidgetView: View {
         .gaugeStyle(.accessoryCircularCapacity)
         .animation(.widgetUpdate, value: reading.share)
         .widgetBackground()
-        .widgetURL(URL(string: "pepticworkshop://dashboard"))
     }
 
     private var icon: String {
@@ -183,7 +182,8 @@ struct RefreshStatsIntent: AppIntent {
 
 // MARK: - Look
 
-private enum Palette {
+/// The site's colours (also the live panel's, LivePanel.swift).
+enum Palette {
     static let background = Color(red: 0x16 / 255, green: 0x13 / 255, blue: 0x0f / 255)
     static let card = Color(red: 0x22 / 255, green: 0x1d / 255, blue: 0x19 / 255)
     static let track = Color(red: 0x3a / 255, green: 0x33 / 255, blue: 0x2c / 255)
@@ -200,7 +200,7 @@ private enum Palette {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder func widgetBackground() -> some View {
         if #available(iOS 17.0, *) {
             containerBackground(Palette.background, for: .widget)
@@ -220,7 +220,7 @@ private extension View {
     }
 }
 
-private extension Animation {
+extension Animation {
     /// How bars, gauges and lines move to new numbers: quick to start,
     /// gentle to settle (iOS caps a widget's animations at 2 seconds).
     static let widgetUpdate = Animation.spring(response: 1.1, dampingFraction: 0.86)
@@ -239,17 +239,15 @@ struct ServerWidgetView: View {
         self.familyOverride = familyOverride
     }
 
+    /// Tapping it opens the app as it was left.
     var body: some View {
-        Group {
-            switch family {
-            case .accessoryRectangular: rectangular
-            case .accessoryInline: inline
-            case .systemSmall: small
-            case .systemLarge: large
-            default: medium
-            }
+        switch family {
+        case .accessoryRectangular: rectangular
+        case .accessoryInline: inline
+        case .systemSmall: small
+        case .systemLarge: large
+        default: medium
         }
-        .widgetURL(URL(string: "pepticworkshop://dashboard"))
     }
 
     private var stats: ServerStats? { entry.stats }

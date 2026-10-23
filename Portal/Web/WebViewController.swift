@@ -35,6 +35,7 @@ final class WebViewController: UIViewController {
         config.userContentController.addScriptMessageHandler(CastBridge.shared, contentWorld: .page, name: "portalCast")
         config.userContentController.addScriptMessageHandler(OfflineBridge.shared, contentWorld: .page, name: "portalDownloads")
         config.userContentController.addScriptMessageHandler(WidgetBridge.shared, contentWorld: .page, name: "portalWidget")
+        config.userContentController.addScriptMessageHandler(LiveBridge.shared, contentWorld: .page, name: "portalLive")
         let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) }; document.documentElement.classList.add('portal-app');",
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
@@ -145,7 +146,7 @@ final class WebViewController: UIViewController {
         return Portal.siteURL
     }
 
-    /// From the home screen widget: the Dashboard (pepticworkshop://dashboard).
+    /// A page of the site from a pepticworkshop:// link (pepticworkshop://vault).
     func open(_ url: URL) {
         guard url.scheme == "pepticworkshop", let target = URL(string: "/\(url.host ?? "")", relativeTo: Portal.siteURL)?.absoluteURL else { return }
         if webView.url?.path == target.path { return }

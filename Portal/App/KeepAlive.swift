@@ -1,18 +1,36 @@
 import AVFoundation
 
-/// A silent sound that keeps the app running in the background while a
-/// video is on the TV (the app is allowed to play audio in the background),
-/// so its connection to the Chromecast stays up. Left alone, iOS freezes the
-/// app soon after it leaves the screen, the Chromecast loses its only sender,
-/// and one with a paused video throws the video away. The sound mixes with
+/// A silent sound that keeps the app running in the background (the app is
+/// allowed to play audio there). Left alone, iOS freezes the app soon after
+/// it leaves the screen. Held while a video is on the TV (CastBridge: the
+/// Chromecast would lose its only sender, and one with a paused video throws
+/// the video away) and while the live panel is on the lock screen
+/// (LiveStats). It plays while anything holds it. The sound mixes with
 /// other apps, so music from another app carries on as normal.
-final class CastKeepAlive {
+final class KeepAlive {
+    static let shared = KeepAlive()
+
     private var player: AVAudioPlayer?
+    private var holders: Set<String> = []
     private var previous: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
 
     var isRunning: Bool { player != nil }
 
-    init() {
+    func isHeld(by holder: String) -> Bool { holders.contains(holder) }
+
+    /// Starts the sound if it isn't playing yet. It has to start while the
+    /// app is still in front.
+    func hold(_ holder: String) {
+        holders.insert(holder)
+        start()
+    }
+
+    func release(_ holder: String) {
+        guard holders.remove(holder) != nil, holders.isEmpty else { return }
+        stop()
+    }
+
+    private init() {
         // A phone call stops it; it carries on after.
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             guard let player = self?.player,
@@ -23,7 +41,7 @@ final class CastKeepAlive {
         }
     }
 
-    func start() {
+    private func start() {
         guard player == nil else { return }
         let session = AVAudioSession.sharedInstance()
         previous = (session.category, session.mode, session.categoryOptions)
@@ -43,7 +61,7 @@ final class CastKeepAlive {
         restoreSession()
     }
 
-    func stop() {
+    private func stop() {
         guard let player else { return }
         player.stop()
         self.player = nil

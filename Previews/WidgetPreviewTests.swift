@@ -48,6 +48,74 @@ final class WidgetPreviewTests: XCTestCase {
         save("lock-gauge-offline", lockScreen(GaugeWidgetView(entry: serverDown, metric: .cpu), size: CGSize(width: 76, height: 76)))
         save("lock-inline-offline", lockScreen(ServerWidgetView(entry: serverDown, familyOverride: .accessoryInline), size: CGSize(width: 260, height: 26)))
         save("lock-inline", lockScreen(ServerWidgetView(entry: live, familyOverride: .accessoryInline), size: CGSize(width: 260, height: 26)))
+
+        // The live panel on the lock screen, and in the Dynamic Island.
+        let panel = PiActivityAttributes.ContentState.sample
+        var panelDown = panel
+        panelDown.status = .serverDown
+        panelDown.at = Date().addingTimeInterval(-90)
+        var panelHot = panel
+        panelHot.cpu = 88
+        panelHot.temperature = 71
+        panelHot.recent = panel.recent.enumerated().map { i, point in
+            .init(t: point.t, cpu: i > 26 ? 70 + Double(i - 26) * 2 : point.cpu)
+        }
+        save("live-lock", livePanel(LivePanelView(state: panel)))
+        save("live-lock-busy", livePanel(LivePanelView(state: panelHot)))
+        save("live-lock-offline", livePanel(LivePanelView(state: panelDown)))
+        save("live-lock-stale", livePanel(LivePanelView(state: panel, stale: true)))
+        save("live-island-expanded", islandExpanded(LiveIsland(state: panel)))
+        save("live-island-expanded-offline", islandExpanded(LiveIsland(state: panelDown)))
+        save("live-island-compact", islandCompact(LiveIsland(state: panel)))
+        save("live-island-compact-offline", islandCompact(LiveIsland(state: panelDown)))
+        save("live-island-minimal", islandMinimal(LiveIsland(state: panel)))
+    }
+
+    /// The lock screen's width for a Live Activity, at the height it takes.
+    private func livePanel<V: View>(_ view: V) -> some View {
+        view
+            .frame(width: 364)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .environment(\.colorScheme, .dark)
+    }
+
+    /// Roughly how iOS lays out the expanded Dynamic Island's regions.
+    private func islandExpanded(_ island: LiveIsland) -> some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .top) {
+                island.cpuBlock
+                Spacer()
+                island.temperatureBlock
+            }
+            island.bottom
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(width: 371)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func islandCompact(_ island: LiveIsland) -> some View {
+        HStack(spacing: 0) {
+            island.compactLeading.padding(.leading, 14)
+            Spacer(minLength: 0)
+            island.compactTrailing.padding(.trailing, 14)
+        }
+        .frame(width: 250, height: 37)
+        .background(Color.black)
+        .clipShape(Capsule())
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func islandMinimal(_ island: LiveIsland) -> some View {
+        island.minimal
+            .frame(width: 37, height: 37)
+            .background(Color.black)
+            .clipShape(Circle())
+            .environment(\.colorScheme, .dark)
     }
 
     private func homeScreen<V: View>(_ view: V, size: CGSize) -> some View {

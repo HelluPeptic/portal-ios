@@ -14,7 +14,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = page
         window.makeKeyAndVisible()
         self.window = window
-        // Opened by tapping the widget.
+        // Opened from a pepticworkshop:// link.
         if let url = connectionOptions.urlContexts.first?.url {
             DispatchQueue.main.async { page.open(url) }
         }

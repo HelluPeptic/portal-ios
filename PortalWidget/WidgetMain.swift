@@ -1,7 +1,8 @@
 import WidgetKit
 import SwiftUI
 
-/// The widgets the app offers (ServerWidget.swift). Kept apart so
+/// The widgets the app offers (ServerWidget.swift) and the live panel
+/// (LivePanel.swift). Kept apart so
 /// Previews/WidgetPreviewTests can draw them without this entry point.
 @main
 struct PortalWidgets: WidgetBundle {
@@ -11,5 +12,6 @@ struct PortalWidgets: WidgetBundle {
         TemperatureGaugeWidget()
         MemoryGaugeWidget()
         VaultGaugeWidget()
+        PiLiveActivity()
     }
 }

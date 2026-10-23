@@ -3,8 +3,9 @@
 name: Portal
 options:
   bundleIdPrefix: org.hellupeptic
+  # 16.2 for the live panel on the lock screen (Live Activities).
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "16.2"
   createIntermediateGroups: true
 
 packages:
@@ -73,7 +74,9 @@ targets:
         NSPhotoLibraryAddUsageDescription: Lets you save photos and videos you download.
         LSApplicationQueriesSchemes:
           - sidestore
-        # Tapping the widget opens the Dashboard (pepticworkshop://dashboard).
+        # The live panel on the lock screen (LiveStats).
+        NSSupportsLiveActivities: true
+        # pepticworkshop://<page> opens that page of the site.
         CFBundleURLTypes:
           - CFBundleURLName: org.hellupeptic.portal
             CFBundleURLSchemes:

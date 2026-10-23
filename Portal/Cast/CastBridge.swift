@@ -23,7 +23,7 @@ final class CastBridge: NSObject {
         // Stays connected while the app is in the background instead of
         // letting go of the TV and picking it back up later: a Chromecast
         // left with no phone connected throws away a paused video.
-        // CastKeepAlive keeps the app running meanwhile.
+        // KeepAlive keeps the app running meanwhile.
         options.suspendSessionsWhenBackgrounded = false
         GCKCastContext.setSharedInstanceWith(options)
         GCKLogger.sharedInstance().loggingEnabled = false
@@ -295,7 +295,6 @@ final class CastBridge: NSObject {
 
     // MARK: - Leaving the app
 
-    private let keepAlive = CastKeepAlive()
     private var keepAliveTimer: Timer?
     private var pausedSince: Date?
     private var idleChecks = 0
@@ -332,9 +331,9 @@ final class CastBridge: NSObject {
     }
 
     private func leaving() {
-        guard videoOnTV, !keepAlive.isRunning else { return }
-        keepAlive.start()
-        guard keepAlive.isRunning else { return }
+        guard videoOnTV, !KeepAlive.shared.isHeld(by: "cast") else { return }
+        KeepAlive.shared.hold("cast")
+        guard KeepAlive.shared.isRunning else { return KeepAlive.shared.release("cast") }
         pausedSince = nil
         idleChecks = 0
         keepAliveTimer?.invalidate()
@@ -372,7 +371,7 @@ final class CastBridge: NSObject {
         keepAliveTimer?.invalidate()
         keepAliveTimer = nil
         pausedSince = nil
-        keepAlive.stop()
+        KeepAlive.shared.release("cast")
     }
 
     private func back() {

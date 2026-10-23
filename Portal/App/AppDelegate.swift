@@ -10,6 +10,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // switch on, like in any video app.
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         CastBridge.configure()
+        // A live panel left on last time carries on.
+        LiveStats.shared.resume()
         // Picks up downloads that went on while the app was closed.
         _ = OfflineStore.shared
         return true
