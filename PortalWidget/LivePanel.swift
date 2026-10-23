@@ -77,10 +77,11 @@ struct LivePanelView: View {
             .opacity(state.isDown || stale ? 0.4 : 1)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
     }
 
-    /// The name and temperature, or a banner saying why the numbers are old.
+    /// The name and temperature, or a banner saying why the numbers are old
+    /// (the lock screen gives a Live Activity 160 points at most).
     @ViewBuilder private var header: some View {
         if state.isDown {
             banner(state.downTitle, icon: state.downIcon, color: state.downColor,
@@ -115,7 +116,7 @@ struct LivePanelView: View {
         }
         .foregroundStyle(Palette.text)
         .padding(.horizontal, 9)
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color))
     }
 }
