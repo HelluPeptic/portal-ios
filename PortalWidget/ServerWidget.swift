@@ -8,17 +8,6 @@ import AppIntents
 /// has it refresh whenever you leave it, and on iOS 17 the refresh button
 /// does it at once. What's relative to now (how long ago, uptime) counts
 /// on by itself in between.
-@main
-struct PortalWidgets: WidgetBundle {
-    var body: some Widget {
-        ServerWidget()
-        CPUGaugeWidget()
-        TemperatureGaugeWidget()
-        MemoryGaugeWidget()
-        VaultGaugeWidget()
-    }
-}
-
 /// The Dashboard: three sizes on the home screen, and a line or two on the
 /// lock screen.
 struct ServerWidget: Widget {
@@ -183,8 +172,17 @@ private extension View {
 }
 
 struct ServerWidgetView: View {
-    @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetFamily) private var widgetFamily
     let entry: StatsEntry
+    /// Set when drawn outside a widget (Previews/WidgetPreviewTests).
+    var familyOverride: WidgetFamily?
+
+    private var family: WidgetFamily { familyOverride ?? widgetFamily }
+
+    init(entry: StatsEntry, familyOverride: WidgetFamily? = nil) {
+        self.entry = entry
+        self.familyOverride = familyOverride
+    }
 
     var body: some View {
         Group {

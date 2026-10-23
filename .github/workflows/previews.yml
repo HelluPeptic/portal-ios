@@ -1,0 +1,42 @@
+name: Widget previews
+
+# Draws the home screen and lock screen widgets as pictures on an iPhone
+# simulator (Previews/WidgetPreviewTests), to see them before a release.
+# Run from the Actions tab or `gh workflow run previews.yml`.
+on:
+  workflow_dispatch:
+
+jobs:
+  previews:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Draw the widgets
+        run: |
+          set -o pipefail
+          SIM=$(xcrun simctl list devices available | grep -m1 -E "^\s+iPhone 1[5-9]( Pro)? \(" | grep -oE "[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}")
+          echo "Simulator: $SIM"
+          xcodebuild test -project Portal.xcodeproj -scheme WidgetPreviews -destination "id=$SIM" -derivedDataPath build 2>&1 \
+            | tee test.log | grep -E "error:|Test Case|\*\* TEST" || true
+          mkdir -p shots
+          grep -oE "WIDGET-PNG [a-z-]+ [A-Za-z0-9+/=]+" test.log | while read -r _ name data; do
+            echo "$data" | base64 -D > "shots/$name.png"
+          done
+          ls -la shots
+          test -n "$(ls shots)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: widget-previews
+          path: |
+            shots
+            test.log
+          retention-days: 7

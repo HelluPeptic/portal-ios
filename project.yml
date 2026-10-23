@@ -122,3 +122,31 @@ targets:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
+
+  # Draws the widgets as pictures on GitHub's iPhone simulator, to look at
+  # them without a phone (.github/workflows/previews.yml). Not part of the app.
+  WidgetPreviews:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PortalWidget
+        excludes:
+          - Info.plist
+          - PortalWidget.entitlements
+          - WidgetMain.swift
+      - path: Shared
+      - path: Previews
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal.previews
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+
+schemes:
+  WidgetPreviews:
+    build:
+      targets:
+        WidgetPreviews: [test]
+    test:
+      targets:
+        - WidgetPreviews
