@@ -244,7 +244,7 @@ struct ServerWidgetView: View {
                 Label(downTitle, systemImage: downIcon)
                     .font(.headline)
                 if let stats {
-                    (Text(entry.state == .serverDown ? "Last seen " : "Updated ") + Text(stats.at, style: .relative) + Text(" ago"))
+                    (Text(entry.state == .serverDown ? "Last seen " : "Last update ") + Text(stats.at, style: .time))
                         .lineLimit(1)
                 }
             }
@@ -336,7 +336,7 @@ struct ServerWidgetView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(downColor))
             if let stats {
-                (Text(entry.state == .serverDown ? "Last seen " : "Updated ") + Text(stats.at, style: .relative) + Text(" ago"))
+                (Text(entry.state == .serverDown ? "Last seen " : "Last update ") + Text(stats.at, style: .time))
                     .font(.caption2)
                     .foregroundStyle(Palette.dim)
                     .lineLimit(1)
@@ -421,9 +421,9 @@ struct ServerWidgetView: View {
                     }
                     if let points = cpuPoints(stats) {
                         HStack(spacing: 14) {
-                            chart("CPU, last hour", points, color: cpuColor, unit: "%", domain: cpuDomain(points))
+                            chart("CPU, last hour", points, color: cpuColor, unit: "%", domain: cpuDomain(points), height: 54)
                             if let temps = temperaturePoints(stats) {
-                                chart("Temperature", temps, color: Palette.warn, unit: "°C", domain: 30...85)
+                                chart("Temperature", temps, color: Palette.warn, unit: "°C", domain: 30...85, height: 54)
                             }
                         }
                     }
@@ -606,7 +606,7 @@ struct ServerWidgetView: View {
     }
 
     /// The last hour with what it shows and the latest value above it.
-    private func chart(_ label: String, _ points: [(Double, Double)], color: Color, unit: String, domain: ClosedRange<Double>) -> some View {
+    private func chart(_ label: String, _ points: [(Double, Double)], color: Color, unit: String, domain: ClosedRange<Double>, height: CGFloat = 36) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label).font(.caption2).foregroundStyle(Palette.dim).lineLimit(1)
@@ -616,7 +616,7 @@ struct ServerWidgetView: View {
                     .foregroundStyle(Palette.text)
             }
             sparkline(points, color: color, domain: domain)
-                .frame(height: 36)
+                .frame(height: height)
         }
         .frame(maxWidth: .infinity)
     }
