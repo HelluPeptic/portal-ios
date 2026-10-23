@@ -281,10 +281,10 @@ struct ServerWidgetView: View {
 
     @ViewBuilder private var large: some View {
         if let stats {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 header(compact: false)
                 HStack(spacing: 16) {
-                    ring(stats)
+                    ring(stats, size: 62)
                     VStack(alignment: .leading, spacing: 6) {
                         figure("Load", stats.load.map { String(format: "%.2f", $0) } ?? "-",
                                note: stats.cores.map { "\($0) cores" })
@@ -388,7 +388,7 @@ struct ServerWidgetView: View {
         }
     }
 
-    private func ring(_ stats: ServerStats) -> some View {
+    private func ring(_ stats: ServerStats, size: CGFloat = 74) -> some View {
         let share = min(1, max(0, (stats.cpuPercent ?? 0) / 100))
         return ZStack {
             Circle().stroke(Palette.track, lineWidth: 8)
@@ -404,7 +404,7 @@ struct ServerWidgetView: View {
                 Text("CPU").font(.caption2).foregroundStyle(Palette.dim)
             }
         }
-        .frame(width: 74, height: 74)
+        .frame(width: size, height: size)
     }
 
     private func tile(_ label: String, _ value: String, share: Double, color: Color) -> some View {
@@ -493,7 +493,7 @@ struct ServerWidgetView: View {
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .chartYScale(domain: low...high)
-            .frame(height: 46)
+            .frame(height: 36)
         }
         .frame(maxWidth: .infinity)
     }
@@ -502,7 +502,7 @@ struct ServerWidgetView: View {
     private func servicesList(_ services: [ServerStats.Service]) -> some View {
         let shown = Array(services.prefix(6))
         let rows = stride(from: 0, to: shown.count, by: 3).map { Array(shown[$0..<min($0 + 3, shown.count)]) }
-        return VStack(alignment: .leading, spacing: 5) {
+        return VStack(alignment: .leading, spacing: 3) {
             Text("Running").font(.caption2).foregroundStyle(Palette.dim)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 10) {
@@ -510,7 +510,7 @@ struct ServerWidgetView: View {
                         HStack(spacing: 5) {
                             Circle().fill(service.up ? Palette.good : Palette.bad).frame(width: 6, height: 6)
                             Text(service.name)
-                                .font(.caption.weight(.medium))
+                                .font(.caption2.weight(.medium))
                                 .foregroundStyle(service.up ? Palette.text : Palette.dim)
                                 .lineLimit(1)
                         }
