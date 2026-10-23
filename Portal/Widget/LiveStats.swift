@@ -1,6 +1,7 @@
 import ActivityKit
 import UIKit
 import WebKit
+import WidgetKit
 #if canImport(notify)
 import notify
 #endif
@@ -94,6 +95,25 @@ final class LiveStats {
         await current.end(nil, dismissalPolicy: .immediate)
     }
 
+    /// From the app icon's quick action and the Control Center button.
+    /// Starting again uses the token the Dashboard handed over last time;
+    /// without one (or if it can't start), the Dashboard opens, which has
+    /// the button and says what's wrong.
+    @MainActor func set(on: Bool) async {
+        if !on { return await stop() }
+        guard !isRunning else { return }
+        if let token = UserDefaults.standard.string(forKey: Self.tokenKey), (try? await start(token: token)) != nil { return }
+        NotificationCenter.default.post(name: .openSitePage, object: URL(string: "pepticworkshop://dashboard"))
+    }
+
+    /// The quick action, Control Center and the widgets' idea of whether
+    /// it's on.
+    private func announce() {
+        SharedStore.liveRunning = isRunning
+        QuickActions.update()
+        if #available(iOS 18.0, *) { ControlCenter.shared.reloadControls(ofKind: "LivePanel") }
+    }
+
     @MainActor private func attach(_ started: Activity<PiActivityAttributes>) {
         activity = started
         watcher?.cancel()
@@ -105,6 +125,7 @@ final class LiveStats {
             }
         }
         runLoop()
+        announce()
     }
 
     @MainActor private func ended(_ which: Activity<PiActivityAttributes>) {
@@ -115,6 +136,7 @@ final class LiveStats {
         watcher = nil
         lastGood = nil
         KeepAlive.shared.release("live")
+        announce()
     }
 
     /// Asks every 5 seconds (once a minute with the screen off), starting now.

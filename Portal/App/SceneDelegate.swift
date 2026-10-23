@@ -14,10 +14,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = page
         window.makeKeyAndVisible()
         self.window = window
-        // Opened from a pepticworkshop:// link.
+        // Opened from a pepticworkshop:// link, or the icon's quick actions.
         if let url = connectionOptions.urlContexts.first?.url {
             DispatchQueue.main.async { page.open(url) }
         }
+        if let shortcut = connectionOptions.shortcutItem {
+            DispatchQueue.main.async { page.perform(shortcut) }
+        }
+    }
+
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        guard let page = window?.rootViewController as? WebViewController else { return completionHandler(false) }
+        page.perform(shortcutItem)
+        completionHandler(true)
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

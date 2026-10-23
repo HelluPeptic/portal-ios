@@ -1,8 +1,8 @@
 import Foundation
 
-/// What the app and its home screen widget share: the widget's token for
-/// the site, and the last numbers it got (shown while the Pi can't be
-/// reached). They live in an app group, which SideStore registers under the
+/// What the app shares with its widgets and its share extension: the
+/// widgets' token for the site, the app's login, and the last numbers the
+/// widget got (shown while the Pi can't be reached). They live in an app group, which SideStore registers under the
 /// account's team ID ("group.org.hellupeptic.portal.ABCDE12345"), so its
 /// real name is read from the profile SideStore signed each of them with.
 enum SharedStore {
@@ -25,6 +25,19 @@ enum SharedStore {
     static var token: String? {
         get { defaults?.string(forKey: "widgetToken") }
         set { defaults?.set(newValue, forKey: "widgetToken") }
+    }
+
+    /// The app's login to the site (its site_session cookie), copied after
+    /// each page load, which the share extension uploads with.
+    static var sessionCookie: String? {
+        get { defaults?.string(forKey: "sessionCookie") }
+        set { defaults?.set(newValue, forKey: "sessionCookie") }
+    }
+
+    /// Whether the live panel is on, for its Control Center button.
+    static var liveRunning: Bool {
+        get { defaults?.bool(forKey: "liveRunning") ?? false }
+        set { defaults?.set(newValue, forKey: "liveRunning") }
     }
 
     static var lastStats: ServerStats? {

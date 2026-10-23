@@ -128,6 +128,9 @@ final class WebViewController: UIViewController {
         }
 
         let center = NotificationCenter.default
+        center.addObserver(forName: .openSitePage, object: nil, queue: .main) { [weak self] note in
+            if let url = note.object as? URL { self?.open(url) }
+        }
         center.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -152,6 +155,17 @@ final class WebViewController: UIViewController {
         if webView.url?.path == target.path { return }
         loadingCover.show()
         webView.load(URLRequest(url: target))
+    }
+
+    /// The app icon's quick actions (QuickActions).
+    func perform(_ shortcut: UIApplicationShortcutItem) {
+        switch shortcut.type {
+        case QuickActions.vault: open(URL(string: "pepticworkshop://vault")!)
+        case QuickActions.dashboard: open(URL(string: "pepticworkshop://dashboard")!)
+        case QuickActions.downloads: showDownloads()
+        case QuickActions.live: Task { @MainActor in await LiveStats.shared.set(on: !LiveStats.shared.isRunning) }
+        default: break
+        }
     }
 
     @objc private func appWillResignActive() {
@@ -413,6 +427,12 @@ extension WebViewController: WKNavigationDelegate {
         errorView?.removeFromSuperview()
         errorView = nil
         loadingCover.hide()
+        // The share extension uploads with the app's login.
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+            guard let session = cookies.first(where: { $0.name == "site_session" && $0.domain.hasSuffix("hellupeptic.org") }),
+                  SharedStore.sessionCookie != session.value else { return }
+            SharedStore.sessionCookie = session.value
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

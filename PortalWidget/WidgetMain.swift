@@ -13,5 +13,9 @@ struct PortalWidgets: WidgetBundle {
         MemoryGaugeWidget()
         VaultGaugeWidget()
         PiLiveActivity()
+        if #available(iOS 18.0, *) {
+            LivePanelControl()
+            MinecraftServerControl()
+        }
     }
 }

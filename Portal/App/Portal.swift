@@ -13,6 +13,11 @@ enum Portal {
     }
 }
 
+extension Notification.Name {
+    /// Asks the page to open a pepticworkshop:// link (object: the URL).
+    static let openSitePage = Notification.Name("openSitePage")
+}
+
 extension UIColor {
     static let portalBackground = UIColor(red: 0x16 / 255, green: 0x13 / 255, blue: 0x0f / 255, alpha: 1)
     static let portalElevated = UIColor(red: 0x21 / 255, green: 0x1c / 255, blue: 0x19 / 255, alpha: 1)

@@ -30,6 +30,9 @@ targets:
       # installing (it needs an App ID of its own unless signed with the
       # app's), so the app works the same without it.
       - target: PortalWidget
+      # "Peptic's Workshop" in the share menu, saving to The Cache. Like
+      # the widget, SideStore asks about it when installing.
+      - target: PortalShare
     scheme: {}
     info:
       path: Portal/Info.plist
@@ -85,6 +88,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal
         CODE_SIGN_ENTITLEMENTS: Portal/Portal.entitlements
+        # Shared code that only the app runs (Shared/ControlIntents.swift).
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PORTAL_APP"
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -119,6 +124,45 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal.widget
         CODE_SIGN_ENTITLEMENTS: PortalWidget/PortalWidget.entitlements
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+  # The share menu's "Peptic's Workshop": photos, videos, files, links and
+  # text into The Cache's From iPhone folder (PortalShare/ShareViewController).
+  PortalShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PortalShare
+        excludes:
+          - Info.plist
+          - PortalShare.entitlements
+      - path: Shared
+    info:
+      path: PortalShare/Info.plist
+      properties:
+        CFBundleDisplayName: Peptic's Workshop
+        CFBundleName: PortalShare
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 50
+              NSExtensionActivationSupportsMovieWithMaxCount: 20
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal.share
+        CODE_SIGN_ENTITLEMENTS: PortalShare/PortalShare.entitlements
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"

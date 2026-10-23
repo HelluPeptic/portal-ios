@@ -12,6 +12,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         CastBridge.configure()
         // A live panel left on last time carries on.
         LiveStats.shared.resume()
+        QuickActions.update()
         // Picks up downloads that went on while the app was closed.
         _ = OfflineStore.shared
         return true

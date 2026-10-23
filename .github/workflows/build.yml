@@ -55,16 +55,18 @@ jobs:
       # Ad hoc signatures carrying the entitlements: SideStore reads what an
       # app asks for (here the app group the widget shares with the app)
       # from its signature, then signs it for real with the user's own Apple
-      # ID when installing. Inside out: frameworks, the widget, the app.
+      # ID when installing. Inside out: frameworks, the extensions, the app.
       - name: Sign for SideStore
         run: |
           set -e
           APP=build/Build/Products/Release-iphoneos/Portal.app
           find "$APP/Frameworks" -maxdepth 1 \( -name "*.framework" -o -name "*.dylib" \) -exec codesign --force --sign - {} \;
           codesign --force --sign - --entitlements PortalWidget/PortalWidget.entitlements "$APP/PlugIns/PortalWidget.appex"
+          codesign --force --sign - --entitlements PortalShare/PortalShare.entitlements "$APP/PlugIns/PortalShare.appex"
           codesign --force --sign - --entitlements Portal/Portal.entitlements "$APP"
           codesign -d --entitlements - "$APP"
           codesign -d --entitlements - "$APP/PlugIns/PortalWidget.appex"
+          codesign -d --entitlements - "$APP/PlugIns/PortalShare.appex"
 
       - name: Package the .ipa
         run: |
