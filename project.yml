@@ -20,9 +20,15 @@ targets:
       - path: Portal
         excludes:
           - Info.plist
+          - Portal.entitlements
+      - path: Shared
     dependencies:
       - package: GoogleCast
         product: GoogleCastDynamic
+      # The home screen widget. SideStore asks whether to keep it when
+      # installing (it needs an App ID of its own unless signed with the
+      # app's), so the app works the same without it.
+      - target: PortalWidget
     scheme: {}
     info:
       path: Portal/Info.plist
@@ -67,12 +73,52 @@ targets:
         NSPhotoLibraryAddUsageDescription: Lets you save photos and videos you download.
         LSApplicationQueriesSchemes:
           - sidestore
+        # Tapping the widget opens the Dashboard (pepticworkshop://dashboard).
+        CFBundleURLTypes:
+          - CFBundleURLName: org.hellupeptic.portal
+            CFBundleURLSchemes:
+              - pepticworkshop
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal
+        CODE_SIGN_ENTITLEMENTS: Portal/Portal.entitlements
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: NO
+
+  # The Pi's numbers on the home screen and lock screen (see ServerWidget).
+  # It shares the app group with the app, for the token the app hands it.
+  PortalWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PortalWidget
+        excludes:
+          - Info.plist
+          - PortalWidget.entitlements
+      - path: Shared
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      path: PortalWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Server
+        CFBundleName: PortalWidget
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hellupeptic.portal.widget
+        CODE_SIGN_ENTITLEMENTS: PortalWidget/PortalWidget.entitlements
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES

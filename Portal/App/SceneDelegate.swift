@@ -10,8 +10,18 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         window.backgroundColor = .portalBackground
         window.tintColor = .portalAccent
-        window.rootViewController = WebViewController()
+        let page = WebViewController()
+        window.rootViewController = page
         window.makeKeyAndVisible()
         self.window = window
+        // Opened by tapping the widget.
+        if let url = connectionOptions.urlContexts.first?.url {
+            DispatchQueue.main.async { page.open(url) }
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = URLContexts.first?.url, let page = window?.rootViewController as? WebViewController else { return }
+        page.open(url)
     }
 }

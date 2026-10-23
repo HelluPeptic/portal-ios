@@ -34,6 +34,7 @@ final class WebViewController: UIViewController {
         config.applicationNameForUserAgent = "Mobile/15E148 PortalApp/\(AppInfo.version)"
         config.userContentController.addScriptMessageHandler(CastBridge.shared, contentWorld: .page, name: "portalCast")
         config.userContentController.addScriptMessageHandler(OfflineBridge.shared, contentWorld: .page, name: "portalDownloads")
+        config.userContentController.addScriptMessageHandler(WidgetBridge.shared, contentWorld: .page, name: "portalWidget")
         let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) }; document.documentElement.classList.add('portal-app');",
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
@@ -126,6 +127,7 @@ final class WebViewController: UIViewController {
         }
 
         let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(appDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
 
@@ -141,6 +143,19 @@ final class WebViewController: UIViewController {
             return url
         }
         return Portal.siteURL
+    }
+
+    /// From the home screen widget: the Dashboard (pepticworkshop://dashboard).
+    func open(_ url: URL) {
+        guard url.scheme == "pepticworkshop", let target = URL(string: "/\(url.host ?? "")", relativeTo: Portal.siteURL)?.absoluteURL else { return }
+        if webView.url?.path == target.path { return }
+        loadingCover.show()
+        webView.load(URLRequest(url: target))
+    }
+
+    @objc private func appWillResignActive() {
+        // The widget refreshes as you go back to the home screen.
+        WidgetBridge.refresh()
     }
 
     @objc private func appDidEnterBackground() {

@@ -23,6 +23,14 @@ to SideStore).
   plays one in the system player, drawing its WebVTT subtitles itself and
   keeping where it was left, which the site picks up later (spa-shell.js).
 
+- `PortalWidget/`: the home screen and lock screen widgets (the Pi's numbers
+  from the Dashboard, via `/api/widget/stats`). They run outside the app with
+  no login, so the app hands them a token of their own (`WidgetBridge`,
+  `portalWidget`) through an app group (`Shared/SharedStore.swift` finds its
+  real name, which SideStore suffixes with the team ID, in the profile).
+  SideStore asks whether to keep the widget when installing: it needs an App
+  ID of its own unless signed with the app's ("Use Main Profile").
+
 ## Building and installing (no Mac, nothing paid)
 
 Every push to `main` builds an unsigned `.ipa` on GitHub Actions (free macOS
