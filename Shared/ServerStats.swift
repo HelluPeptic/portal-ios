@@ -25,6 +25,19 @@ struct ServerStats: Codable, Equatable {
         var total: Int
     }
 
+    /// A reading a minute over the last hour, for the chart.
+    struct Point: Codable, Equatable {
+        var t: Double
+        var cpu: Double?
+        var temp: Double?
+    }
+
+    /// Something running on the Pi: a Docker container or a screen session.
+    struct Service: Codable, Equatable {
+        var name: String
+        var up: Bool
+    }
+
     var at: Date
     var name: String?
     var cpuPercent: Double?
@@ -37,6 +50,8 @@ struct ServerStats: Codable, Equatable {
     var uptime: Double
     var containers: Containers
     var sessions: Int
+    var history: [Point]?
+    var services: [Service]?
 
     /// Fetches the latest from the site with the widget's token.
     static func fetch(token: String) async throws -> ServerStats {
@@ -61,7 +76,15 @@ struct ServerStats: Codable, Equatable {
         memory: Usage(used: 2.9e9, total: 8.4e9),
         disks: [Disk(name: "SD card", used: 21e9, total: 62e9), Disk(name: "Vault", used: 2.3e12, total: 4e12)],
         network: Network(down: 1.2e6, up: 3.4e5), uptime: 3 * 86400 + 4 * 3600,
-        containers: Containers(running: 3, total: 3), sessions: 2
+        containers: Containers(running: 3, total: 3), sessions: 2,
+        history: (0..<60).map { i in
+            let x = Double(i)
+            return Point(t: Date().timeIntervalSince1970 - Double(60 - i) * 60,
+                         cpu: 10 + 8 * sin(x / 6) + (i > 44 && i < 50 ? 35 : 0),
+                         temp: 48 + 3 * sin(x / 9) + (i > 44 && i < 52 ? 6 : 0))
+        },
+        services: [Service(name: "website", up: true), Service(name: "radagon", up: true),
+                   Service(name: "minecraft", up: true), Service(name: "flowsmp", up: false)]
     )
 }
 

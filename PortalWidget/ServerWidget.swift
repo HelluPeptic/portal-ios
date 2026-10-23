@@ -1,6 +1,7 @@
 import WidgetKit
 import SwiftUI
 import AppIntents
+import Charts
 
 /// The Pi at a glance on the home screen or lock screen: the Dashboard's
 /// numbers from /api/widget/stats. iOS decides how often a widget may
@@ -69,12 +70,26 @@ struct GaugeWidgetView: View {
         Gauge(value: reading.share) {
             Text(reading.label)
         } currentValueLabel: {
-            Text(reading.value)
-                .contentTransition(.numericText())
+            VStack(spacing: 0) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(reading.value)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .contentTransition(.numericText())
+            }
         }
         .gaugeStyle(.accessoryCircularCapacity)
         .widgetBackground()
         .widgetURL(URL(string: "pepticworkshop://dashboard"))
+    }
+
+    private var icon: String {
+        switch metric {
+        case .cpu: return "cpu"
+        case .temperature: return "thermometer.medium"
+        case .memory: return "memorychip"
+        case .vault: return "externaldrive"
+        }
     }
 
     private var reading: (share: Double, value: String, label: String) {
@@ -283,15 +298,19 @@ struct ServerWidgetView: View {
                     bar(disk.name, StatsFormat.bytes(disk.total - disk.used) + " free of " + StatsFormat.bytes(disk.total),
                         share: disk.share, color: diskColor(disk))
                 }
-                HStack(spacing: 14) {
-                    pill(systemImage: "arrow.down", StatsFormat.speed(stats.network.down))
-                    pill(systemImage: "arrow.up", StatsFormat.speed(stats.network.up))
-                    pill(systemImage: "shippingbox", "\(stats.containers.running) of \(stats.containers.total) running",
-                         color: stats.containers.running < stats.containers.total ? Palette.warn : Palette.dim)
-                    pill(systemImage: "terminal", "\(stats.sessions)")
+                if let history = stats.history, history.count >= 3 {
+                    HStack(spacing: 14) {
+                        chart("CPU, last hour", history.compactMap { p in p.cpu.map { (p.t, $0) } },
+                              color: Palette.accent, unit: "%", domain: 0...100)
+                        chart("Temperature", history.compactMap { p in p.temp.map { (p.t, $0) } },
+                              color: Palette.warn, unit: "°C", domain: 30...85)
+                    }
+                }
+                if let services = stats.services, !services.isEmpty {
+                    servicesList(services)
                 }
                 Spacer(minLength: 0)
-                footer(stats, showNetwork: false)
+                footer(stats)
             }
             .widgetBackground()
         } else {
@@ -447,12 +466,60 @@ struct ServerWidgetView: View {
         }
     }
 
-    private func pill(systemImage: String, _ text: String, color: Color = Palette.dim) -> some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
+    /// A line over the last hour, filled in underneath, with the latest value.
+    private func chart(_ label: String, _ points: [(Double, Double)], color: Color, unit: String, domain: ClosedRange<Double>) -> some View {
+        let low = min(domain.lowerBound, (points.map(\.1).min() ?? domain.lowerBound) - 2)
+        let high = max(domain.upperBound, (points.map(\.1).max() ?? domain.upperBound) + 2)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label).font(.caption2).foregroundStyle(Palette.dim).lineLimit(1)
+                Spacer(minLength: 2)
+                Text(points.last.map { "\(Int($0.1.rounded()))\(unit)" } ?? "-")
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(Palette.text)
+            }
+            Chart {
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    AreaMark(x: .value("Time", Date(timeIntervalSince1970: point.0)),
+                             yStart: .value("Base", low), yEnd: .value(label, point.1))
+                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.35), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                        .interpolationMethod(.catmullRom)
+                    LineMark(x: .value("Time", Date(timeIntervalSince1970: point.0)), y: .value(label, point.1))
+                        .foregroundStyle(color)
+                        .lineStyle(StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                        .interpolationMethod(.catmullRom)
+                }
+            }
+            .chartXAxis(.hidden)
+            .chartYAxis(.hidden)
+            .chartYScale(domain: low...high)
+            .frame(height: 46)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// What's running, three to a row, green when up and red when not.
+    private func servicesList(_ services: [ServerStats.Service]) -> some View {
+        let shown = Array(services.prefix(6))
+        let rows = stride(from: 0, to: shown.count, by: 3).map { Array(shown[$0..<min($0 + 3, shown.count)]) }
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("Running").font(.caption2).foregroundStyle(Palette.dim)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 10) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, service in
+                        HStack(spacing: 5) {
+                            Circle().fill(service.up ? Palette.good : Palette.bad).frame(width: 6, height: 6)
+                            Text(service.name)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(service.up ? Palette.text : Palette.dim)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    ForEach(0..<(3 - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                }
+            }
+        }
     }
 
     // MARK: Numbers
