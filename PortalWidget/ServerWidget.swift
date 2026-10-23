@@ -235,22 +235,34 @@ struct ServerWidgetView: View {
 
     // MARK: Home screen
 
+    /// Four rings filling the square: CPU, temperature, RAM and the Vault.
     @ViewBuilder private var small: some View {
         if let stats {
-            VStack(alignment: .leading, spacing: 8) {
-                header(compact: true)
-                Spacer(minLength: 0)
+            let vault = stats.disks.first { $0.name == "Vault" } ?? stats.disks.last
+            VStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    tile("CPU", cpuText, share: (stats.cpuPercent ?? 0) / 100, color: cpuColor)
-                    tile("Temp", temperatureText, share: min(1, (stats.temperature ?? 0) / 85), color: temperatureColor)
+                    miniRing("CPU", cpuText, share: (stats.cpuPercent ?? 0) / 100, color: cpuColor)
+                    miniRing("Temp", temperatureText, share: min(1, (stats.temperature ?? 0) / 85), color: temperatureColor)
                 }
                 HStack(spacing: 10) {
-                    tile("RAM", StatsFormat.percent(stats.memory.share), share: stats.memory.share, color: Palette.level(stats.memory.share, warn: 0.8, bad: 0.92))
-                    if let vault = stats.disks.last {
-                        tile(vault.name, StatsFormat.percent(vault.share), share: vault.share, color: diskColor(vault))
-                    }
+                    miniRing("RAM", StatsFormat.percent(stats.memory.share), share: stats.memory.share,
+                             color: Palette.level(stats.memory.share, warn: 0.8, bad: 0.92))
+                    miniRing(vault?.name ?? "Disk", vault.map { StatsFormat.percent($0.share) } ?? "-", share: vault?.share ?? 0,
+                             color: vault.map(diskColor) ?? Palette.dim)
                 }
             }
+            .opacity(entry.state == .offline ? 0.45 : 1)
+            .overlay {
+                if entry.state == .offline {
+                    Text("Offline")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Palette.bad))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .widgetBackground()
         } else {
             notConnected
@@ -407,18 +419,30 @@ struct ServerWidgetView: View {
         .frame(width: size, height: size)
     }
 
-    private func tile(_ label: String, _ value: String, share: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label).font(.caption2).foregroundStyle(Palette.dim).lineLimit(1)
-            Text(value)
-                .font(.system(size: 17, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(Palette.text)
-                .contentTransition(.numericText())
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            meter(share, color: color)
+    /// A ring with its number and what it is inside, for the small widget.
+    private func miniRing(_ label: String, _ value: String, share: Double, color: Color) -> some View {
+        ZStack {
+            Circle().stroke(Palette.track, lineWidth: 6)
+            Circle()
+                .trim(from: 0, to: min(1, max(0.02, share)))
+                .stroke(color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 0) {
+                Text(value)
+                    .font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Palette.text)
+                    .contentTransition(.numericText())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Palette.dim)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .aspectRatio(1, contentMode: .fit)
     }
 
     private func bar(_ label: String, _ detail: String, share: Double, color: Color) -> some View {
