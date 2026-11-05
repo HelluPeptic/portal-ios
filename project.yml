@@ -75,8 +75,6 @@ targets:
         NSMicrophoneUsageDescription: Lets you record a video with sound to upload.
         NSPhotoLibraryUsageDescription: Lets you pick photos and videos to upload.
         NSPhotoLibraryAddUsageDescription: Lets you save photos and videos you download.
-        LSApplicationQueriesSchemes:
-          - sidestore
         # The live panel on the lock screen (LiveStats).
         NSSupportsLiveActivities: true
         # pepticworkshop://<page> opens that page of the site.

@@ -6,7 +6,7 @@ import SafariServices
 /// do: Chromecast casting (see CastBridge), movies and episodes saved to
 /// watch without a connection (see OfflineStore), native pop-ups for the
 /// site's confirm()/prompt() dialogs, other downloads to the share sheet,
-/// and a notice before the free signature runs out.
+/// and a notice when a new version is ready.
 final class WebViewController: UIViewController {
     private var webView: WKWebView!
     private let loadingBar = UIProgressView(progressViewStyle: .bar)
@@ -306,27 +306,16 @@ final class WebViewController: UIViewController {
         }
     }
 
-    // MARK: - Expiry and update notice
+    // MARK: - Update notice
 
-    private enum BannerKind { case expiry, update }
-    private var bannerKind: BannerKind?
     private var offeredBuild = 0
     private static let dismissedUpdateKey = "dismissedUpdate"
 
+    // There's no notice before the free signature runs out: SideStore
+    // refreshes it by putting a new profile on the phone, which the app
+    // can't see, while the one inside the app keeps its install date, so a
+    // count from it was days short after every refresh.
     private func checkAppStatus() {
-        if let expiry = AppInfo.expiryDate {
-            let days = expiry.timeIntervalSinceNow / 86400
-            if days < 2 {
-                // Installed through SideStore it refreshes there; installed
-                // straight from a computer (iloader) it gets installed again.
-                let viaSideStore = UIApplication.shared.canOpenURL(Portal.sideStoreURL)
-                let text = viaSideStore
-                    ? "The app needs a refresh in SideStore \(days < 1 ? "today" : "within 2 days")."
-                    : "The app stops opening \(days < 1 ? "within a day" : "in under 2 days"). Install it again from your computer to keep it."
-                showBanner(.expiry, text: text, button: viaSideStore ? "Open SideStore" : "How")
-                return
-            }
-        }
         var request = URLRequest(url: Portal.appInfoURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
@@ -337,19 +326,18 @@ final class WebViewController: UIViewController {
                   UserDefaults.standard.integer(forKey: Self.dismissedUpdateKey) != latest else { return }
             DispatchQueue.main.async {
                 self?.offeredBuild = latest
-                self?.showBanner(.update, text: "A new version of the app is ready.", button: "Update")
+                self?.showBanner(text: "A new version of the app is ready.", button: "Update")
             }
         }.resume()
     }
 
-    private func showBanner(_ kind: BannerKind, text: String, button: String) {
-        bannerKind = kind
+    private func showBanner(text: String, button: String) {
         banner.configure(text: text, button: button)
         banner.onClose = { [weak self] in
             guard let self else { return }
             self.hideBanner()
             // Don't nag about the same version again.
-            if kind == .update { UserDefaults.standard.set(self.offeredBuild, forKey: Self.dismissedUpdateKey) }
+            UserDefaults.standard.set(self.offeredBuild, forKey: Self.dismissedUpdateKey)
         }
         guard banner.isHidden else { return }
         banner.alpha = 0
@@ -363,15 +351,7 @@ final class WebViewController: UIViewController {
 
     private func bannerAction() {
         // A new version: the app's page, which says how to get it.
-        if bannerKind == .update {
-            openOutside(URL(string: "?update=1", relativeTo: Portal.appPageURL)?.absoluteURL ?? Portal.appPageURL)
-            return
-        }
-        if UIApplication.shared.canOpenURL(Portal.sideStoreURL) {
-            UIApplication.shared.open(Portal.sideStoreURL)
-        } else {
-            openOutside(Portal.appPageURL)
-        }
+        openOutside(URL(string: "?update=1", relativeTo: Portal.appPageURL)?.absoluteURL ?? Portal.appPageURL)
     }
 }
 

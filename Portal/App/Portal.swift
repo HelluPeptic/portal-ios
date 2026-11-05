@@ -6,7 +6,6 @@ enum Portal {
     static let siteHost = "home.hellupeptic.org"
     static let appPageURL = URL(string: "https://home.hellupeptic.org/app")!
     static let appInfoURL = URL(string: "https://home.hellupeptic.org/app/info.json")!
-    static let sideStoreURL = URL(string: "sidestore://")!
 
     static func isSite(_ url: URL?) -> Bool {
         url?.host?.lowercased() == siteHost
@@ -27,7 +26,7 @@ extension UIColor {
     static let portalAccent = UIColor(red: 1, green: 0x6b / 255, blue: 0x6b / 255, alpha: 1)
 }
 
-/// The app's own version, and when its signature runs out.
+/// The app's own version.
 enum AppInfo {
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -36,19 +35,4 @@ enum AppInfo {
     static var build: Int {
         Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0
     }
-
-    /// SideStore signs the app with a free Apple ID, which is only good for
-    /// 7 days; the date is in the provisioning profile it embeds. That file
-    /// is a signed blob with a plain XML plist inside.
-    static let expiryDate: Date? = {
-        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-              let data = try? Data(contentsOf: url),
-              let start = data.range(of: Data("<?xml".utf8)),
-              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex) else {
-            return nil
-        }
-        let plistData = data.subdata(in: start.lowerBound..<end.upperBound)
-        let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any]
-        return plist?["ExpirationDate"] as? Date
-    }()
 }

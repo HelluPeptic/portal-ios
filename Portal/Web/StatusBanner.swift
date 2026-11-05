@@ -1,7 +1,7 @@
 import UIKit
 
-/// A small card at the bottom of the screen: "Portal needs a refresh in
-/// SideStore" or "A new version is ready", with one button and a close.
+/// A small card at the bottom of the screen: "A new version of the app is
+/// ready", with one button and a close.
 final class StatusBanner: UIView {
     var onAction: (() -> Void)?
     var onClose: (() -> Void)?
