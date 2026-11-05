@@ -101,6 +101,18 @@ final class OfflineStore: NSObject {
 
     private func resumeFile(_ id: String) -> URL { folder(id).appendingPathComponent("resume.data") }
 
+    /// The player (Resources/offline-player.html), copied in next to the
+    /// downloads: WebKit only reads files in the folder it's let into.
+    func playerPage() -> URL? {
+        guard let bundled = Bundle.main.url(forResource: "offline-player", withExtension: "html"),
+              let data = try? Data(contentsOf: bundled) else { return nil }
+        let page = root.appendingPathComponent("player.html")
+        if (try? Data(contentsOf: page)) != data {
+            do { try data.write(to: page, options: .atomic) } catch { return nil }
+        }
+        return page
+    }
+
     var freeSpace: Int64? {
         (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
     }

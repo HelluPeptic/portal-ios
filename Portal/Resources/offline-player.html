@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Player</title>
+<!--
+  Plays a download the way the site's Vault player does (the cinema look:
+  the picture fills the screen, the controls lie over it and fade), from the
+  phone's own copy, so it works with no connection. OfflinePlayback copies
+  this file next to the downloads (Application Support/Offline/player.html),
+  loads it with read access to that folder and calls startPlayer() with the
+  download; the page answers through webkit.messageHandlers.offlinePlayer:
+  { cmd: 'position', time, duration }, { cmd: 'subtitle', index },
+  { cmd: 'rotate' } and { cmd: 'close' }.
+-->
+<style>
+:root {
+    --safe-top: env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+    --safe-left: env(safe-area-inset-left);
+    --safe-right: env(safe-area-inset-right);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+}
+
+button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.hidden {
+    display: none !important;
+}
+
+svg {
+    display: block;
+}
+
+/* Sized to the picture (fitVideo), so subtitles sit under it, not at the
+   bottom of the screen. */
+video {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    transform: translate(-50%, -50%);
+}
+
+video::-webkit-media-controls,
+video::-webkit-media-controls-start-playback-button,
+video::-webkit-media-controls-overlay-play-button {
+    display: none !important;
+    -webkit-appearance: none;
+}
+
+.top,
+.bottom,
+.center {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.top button,
+.bottom button,
+.center button,
+.seek {
+    pointer-events: auto;
+}
+
+.btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+}
+
+.btn svg {
+    width: 26px;
+    height: 26px;
+}
+
+.btn:active,
+.btn.open {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* Subtitles on: a dot under the button. */
+.btn.active {
+    position: relative;
+}
+
+.btn.active::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 3px;
+    width: 5px;
+    height: 5px;
+    margin-left: -2.5px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.top {
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: calc(0.6rem + var(--safe-top)) calc(0.6rem + var(--safe-right)) 3rem calc(0.6rem + var(--safe-left));
+    background: linear-gradient(rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+}
+
+.back svg {
+    width: 30px;
+    height: 30px;
+}
+
+.heading {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+
+.heading-small {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.heading-main {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.center {
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2.75rem;
+    transform: translateY(-50%);
+}
+
+.center .btn {
+    width: 60px;
+    height: 60px;
+}
+
+.center .btn svg {
+    width: 36px;
+    height: 36px;
+}
+
+.center .play {
+    width: 76px;
+    height: 76px;
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.center .play svg {
+    width: 38px;
+    height: 38px;
+}
+
+.bottom {
+    bottom: 0;
+    padding: 3rem calc(1rem + var(--safe-right)) calc(1rem + var(--safe-bottom)) calc(1rem + var(--safe-left));
+    background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85));
+}
+
+.seekrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.2rem 0;
+}
+
+.time {
+    flex: none;
+    min-width: 3.2em;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+#duration {
+    margin-left: auto;
+    text-align: right;
+}
+
+.seek {
+    position: relative;
+    flex: 0 0 100%;
+    order: -1;
+    padding: 10px 0;
+    touch-action: none;
+}
+
+.track {
+    position: relative;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: #fff;
+}
+
+.handle {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    transform: translate(-50%, -50%);
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-evenly;
+    margin-top: 0.4rem;
+}
+
+/* Faded while it plays. */
+body.controls-hidden .top,
+body.controls-hidden .bottom,
+body.controls-hidden .center {
+    opacity: 0;
+}
+
+body.controls-hidden .top *,
+body.controls-hidden .bottom *,
+body.controls-hidden .center * {
+    pointer-events: none;
+}
+
+/* The CC menu, as a sheet from the bottom. */
+.subs-menu {
+    position: absolute;
+    left: calc(0.75rem + var(--safe-left));
+    right: calc(0.75rem + var(--safe-right));
+    bottom: calc(0.75rem + var(--safe-bottom));
+    z-index: 6;
+    max-height: 60%;
+    overflow-y: auto;
+    padding: 0.4rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    background: rgba(24, 24, 24, 0.94);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.subs-heading {
+    padding: 0.55rem 0.75rem 0.35rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.subs-option {
+    display: flex;
+    justify-content: flex-start;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    text-align: left;
+}
+
+.subs-option:active {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.subs-check {
+    display: inline-flex;
+    flex: none;
+    width: 16px;
+    visibility: hidden;
+}
+
+.subs-check svg {
+    width: 14px;
+    height: 14px;
+}
+
+.subs-option.active .subs-check {
+    visibility: visible;
+}
+
+.message {
+    position: absolute;
+    left: 1.5rem;
+    right: 1.5rem;
+    top: 50%;
+    z-index: 4;
+    transform: translateY(-50%);
+    text-align: center;
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* Turned sideways: one line for the seek bar, the buttons to the right. */
+@media (orientation: landscape) {
+    .top {
+        padding-top: calc(1rem + var(--safe-top));
+    }
+
+    .seekrow {
+        flex-wrap: nowrap;
+        gap: 1rem;
+    }
+
+    .seek {
+        flex: 1 1 auto;
+        order: 0;
+    }
+
+    #duration {
+        margin-left: 0;
+    }
+
+    .bar {
+        justify-content: flex-end;
+        gap: 0.75rem;
+        margin-top: 0.3rem;
+    }
+
+    .subs-menu {
+        left: auto;
+        width: 320px;
+    }
+}
+</style>
+</head>
+<body>
+<video id="video" playsinline webkit-playsinline autopictureinpicture></video>
+<p id="message" class="message hidden"></p>
+<div class="top">
+    <button type="button" id="back" class="btn back" aria-label="Close"></button>
+    <div class="heading">
+        <span id="heading-small" class="heading-small"></span>
+        <span id="heading-main" class="heading-main"></span>
+    </div>
+</div>
+<div class="center">
+    <button type="button" id="center-back" class="btn" aria-label="Back 10 seconds"></button>
+    <button type="button" id="center-play" class="btn play" aria-label="Play"></button>
+    <button type="button" id="center-fwd" class="btn" aria-label="Forward 10 seconds"></button>
+</div>
+<div class="bottom">
+    <div class="seekrow">
+        <span id="current" class="time">0:00</span>
+        <div id="seek" class="seek">
+            <div class="track">
+                <div id="fill" class="fill"></div>
+                <div id="handle" class="handle"></div>
+            </div>
+        </div>
+        <span id="duration" class="time">0:00</span>
+    </div>
+    <div class="bar">
+        <button type="button" id="subs" class="btn hidden" aria-label="Subtitles"></button>
+        <button type="button" id="pip" class="btn hidden" aria-label="Picture in picture"></button>
+        <button type="button" id="rotate" class="btn" aria-label="Full screen"></button>
+    </div>
+</div>
+<div id="subs-menu" class="subs-menu hidden" role="menu">
+    <div class="subs-heading">Subtitles</div>
+    <div id="subs-list"></div>
+</div>
+<script>
+(function () {
+    'use strict';
+
+    const ICONS = {
+        back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+        play: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="7 4 20 12 7 20 7 4"/></svg>',
+        pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4.2" height="16" rx="1"/><rect x="13.8" y="4" width="4.2" height="16" rx="1"/></svg>',
+        back10: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/><text x="12" y="15.5" text-anchor="middle" font-size="7.5" font-family="sans-serif" font-weight="700" fill="currentColor" stroke="none">10</text></svg>',
+        fwd10: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 3 21 9 15 9"/><text x="12" y="15.5" text-anchor="middle" font-size="7.5" font-family="sans-serif" font-weight="700" fill="currentColor" stroke="none">10</text></svg>',
+        subs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M10.5 10.2a2.3 2.3 0 1 0 0 3.6M17.5 10.2a2.3 2.3 0 1 0 0 3.6" stroke-linecap="round"/></svg>',
+        pip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><rect x="12" y="11.5" width="7" height="5.5" rx="1" fill="currentColor" stroke="none"/></svg>',
+        full: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>',
+        exitFull: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const video = $('video');
+    const seekrow = document.querySelector('.seekrow');
+    let config = null;
+    let started = false;
+    let lastPosted = -100;
+    let hideTimer = null;
+    let dragging = false;
+
+    $('back').innerHTML = ICONS.back;
+    $('center-back').innerHTML = ICONS.back10;
+    $('center-fwd').innerHTML = ICONS.fwd10;
+    $('subs').innerHTML = ICONS.subs;
+    $('pip').innerHTML = ICONS.pip;
+
+    function post(message) {
+        try { window.webkit.messageHandlers.offlinePlayer.postMessage(message); } catch { /* not in the app */ }
+    }
+
+    function clock(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
+        const total = Math.floor(seconds);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    // Where it got to, for the app (and from it the site).
+    function savePosition() {
+        if (!started || !video.duration) return;
+        lastPosted = video.currentTime;
+        post({ cmd: 'position', time: video.currentTime, duration: video.duration });
+    }
+    window.savePosition = savePosition;
+
+    // From the app, once the page is there.
+    window.startPlayer = (cfg) => {
+        config = cfg;
+        $('heading-small').textContent = cfg.detail || '';
+        $('heading-small').classList.toggle('hidden', !cfg.detail);
+        $('heading-main').textContent = cfg.title || '';
+        (cfg.subtitles || []).forEach((sub, i) => {
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.src = sub.src;
+            track.label = sub.label || `Subtitles ${i + 1}`;
+            if (sub.lang) track.srclang = sub.lang;
+            video.appendChild(track);
+        });
+        $('subs').classList.toggle('hidden', !(cfg.subtitles || []).length);
+        showSubtitle(Number.isInteger(cfg.subtitle) ? cfg.subtitle : null, false);
+        video.src = cfg.video;
+        video.addEventListener('loadedmetadata', () => {
+            const at = cfg.resumeAt > 0 && cfg.resumeAt < video.duration - 5 ? cfg.resumeAt : 0;
+            if (at) video.currentTime = at;
+            started = true;
+            video.play().catch(() => showControls());
+            updateTime();
+        }, { once: true });
+        if (video.webkitSupportsPresentationMode && video.webkitSupportsPresentationMode('picture-in-picture')) $('pip').classList.remove('hidden');
+    };
+
+    function fitVideo() {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        if (!width || !height) return;
+        const scale = Math.min(window.innerWidth / width, window.innerHeight / height);
+        video.style.width = `${Math.round(width * scale)}px`;
+        video.style.height = `${Math.round(height * scale)}px`;
+        liftSubtitles();
+    }
+    video.addEventListener('loadedmetadata', fitVideo);
+    window.addEventListener('resize', fitVideo);
+
+    video.addEventListener('error', () => {
+        $('message').textContent = 'This download can\'t be played.';
+        $('message').classList.remove('hidden');
+        showControls();
+    });
+
+    // --- Play, pause, -10 and +10 ---
+    function updatePlayIcon() {
+        $('center-play').innerHTML = video.paused ? ICONS.play : ICONS.pause;
+        $('center-play').setAttribute('aria-label', video.paused ? 'Play' : 'Pause');
+    }
+    updatePlayIcon();
+
+    function togglePlay() {
+        if (video.paused) video.play().catch(() => {});
+        else video.pause();
+    }
+
+    function skipBy(seconds) {
+        video.currentTime = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + seconds));
+        showControls();
+    }
+
+    $('center-play').addEventListener('click', togglePlay);
+    $('center-back').addEventListener('click', () => skipBy(-10));
+    $('center-fwd').addEventListener('click', () => skipBy(10));
+    video.addEventListener('play', () => { updatePlayIcon(); showControls(); });
+    video.addEventListener('pause', () => { updatePlayIcon(); showControls(); savePosition(); });
+    video.addEventListener('seeked', savePosition);
+    video.addEventListener('ended', () => {
+        lastPosted = video.duration;
+        post({ cmd: 'position', time: video.duration, duration: video.duration });
+    });
+
+    // --- The seek bar ---
+    function updateTime() {
+        const duration = video.duration;
+        $('current').textContent = clock(video.currentTime);
+        $('duration').textContent = clock(duration);
+        if (!duration || dragging) return;
+        const pct = `${(video.currentTime / duration) * 100}%`;
+        $('fill').style.width = pct;
+        $('handle').style.left = pct;
+    }
+
+    video.addEventListener('timeupdate', () => {
+        updateTime();
+        if (!video.paused && Math.abs(video.currentTime - lastPosted) >= 10) savePosition();
+    });
+
+    function seekFraction(e) {
+        const rect = document.querySelector('.track').getBoundingClientRect();
+        const point = e.touches ? e.touches[0] : e;
+        return Math.min(1, Math.max(0, (point.clientX - rect.left) / rect.width));
+    }
+
+    function dragTo(fraction) {
+        if (!video.duration) return;
+        const pct = `${fraction * 100}%`;
+        $('fill').style.width = pct;
+        $('handle').style.left = pct;
+        $('current').textContent = clock(fraction * video.duration);
+    }
+
+    // The picture follows the finger, the video seeks once it's let go.
+    let dragFraction = 0;
+    $('seek').addEventListener('pointerdown', (e) => {
+        dragging = true;
+        $('seek').setPointerCapture(e.pointerId);
+        dragFraction = seekFraction(e);
+        dragTo(dragFraction);
+        showControls();
+    });
+    $('seek').addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        dragFraction = seekFraction(e);
+        dragTo(dragFraction);
+    });
+    const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        if (video.duration) video.currentTime = dragFraction * video.duration;
+        showControls();
+    };
+    $('seek').addEventListener('pointerup', endDrag);
+    $('seek').addEventListener('pointercancel', endDrag);
+
+    // --- The controls fade after 3 s while it plays; a tap on the picture
+    // shows or hides them. ---
+    function controlsStay() {
+        return video.paused || dragging || !$('subs-menu').classList.contains('hidden');
+    }
+
+    function showControls() {
+        const wasHidden = document.body.classList.contains('controls-hidden');
+        document.body.classList.remove('controls-hidden');
+        clearTimeout(hideTimer);
+        if (!controlsStay()) hideTimer = setTimeout(() => { if (!controlsStay()) hideControls(); }, 3000);
+        if (wasHidden) liftSubtitles();
+    }
+
+    function hideControls() {
+        clearTimeout(hideTimer);
+        if (document.body.classList.contains('controls-hidden')) return;
+        document.body.classList.add('controls-hidden');
+        liftSubtitles();
+    }
+
+    // A tap anywhere but on a control shows or hides them.
+    const onControl = (target) => !!target.closest('button, .seek, .subs-menu');
+    let menuClosedAt = 0;
+    document.addEventListener('click', (e) => {
+        if (onControl(e.target) || Date.now() - menuClosedAt < 600) return;
+        if (document.body.classList.contains('controls-hidden')) showControls();
+        else hideControls();
+    });
+    document.addEventListener('pointerdown', (e) => {
+        if (onControl(e.target)) showControls();
+    });
+
+    // Subtitles move up out of the way while the controls show (a cue's
+    // line counts up from the bottom, a line of text each: about 7% of the
+    // video's height).
+    let cueLine = 'auto';
+
+    function liftSubtitles() {
+        let line = 'auto';
+        if (!document.body.classList.contains('controls-hidden')) {
+            const box = video.getBoundingClientRect();
+            const bar = seekrow.getBoundingClientRect();
+            const overlap = box.bottom - bar.top;
+            if (overlap > 0 && box.height > 0) line = -Math.ceil(overlap / (box.height * 0.07)) - 1;
+        }
+        cueLine = line;
+        for (let i = 0; i < video.textTracks.length; i++) placeCues(video.textTracks[i]);
+    }
+
+    function placeCues(track) {
+        if (track.mode !== 'showing' || !track.activeCues) return;
+        for (const cue of track.activeCues) if (cue.line !== cueLine) cue.line = cueLine;
+    }
+
+    video.textTracks.addEventListener('addtrack', (e) => {
+        e.track.addEventListener('cuechange', () => placeCues(e.track));
+    });
+
+    // --- Subtitles ---
+    let subtitleOn = null;
+
+    function showSubtitle(index, remember) {
+        subtitleOn = index;
+        for (let i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = i === index ? 'showing' : 'disabled';
+        $('subs').classList.toggle('active', index !== null);
+        if (remember) post({ cmd: 'subtitle', index });
+        liftSubtitles();
+    }
+
+    function renderSubsMenu() {
+        const list = $('subs-list');
+        list.innerHTML = '';
+        const options = [{ label: 'Off', index: null }, ...(config ? config.subtitles || [] : []).map((sub, i) => ({ label: sub.label || `Subtitles ${i + 1}`, index: i }))];
+        for (const option of options) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'subs-option' + (option.index === subtitleOn ? ' active' : '');
+            row.setAttribute('role', 'menuitemradio');
+            row.innerHTML = `<span class="subs-check">${ICONS.check}</span>`;
+            row.append(option.label);
+            row.addEventListener('click', () => {
+                showSubtitle(option.index, true);
+                closeSubsMenu();
+            });
+            list.appendChild(row);
+        }
+    }
+
+    function closeSubsMenu() {
+        if ($('subs-menu').classList.contains('hidden')) return;
+        $('subs-menu').classList.add('hidden');
+        $('subs').classList.remove('open');
+        showControls();
+    }
+
+    $('subs').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!$('subs-menu').classList.contains('hidden')) { closeSubsMenu(); return; }
+        renderSubsMenu();
+        $('subs-menu').classList.remove('hidden');
+        $('subs').classList.add('open');
+        showControls();
+    });
+    document.addEventListener('pointerdown', (e) => {
+        if ($('subs-menu').classList.contains('hidden') || $('subs-menu').contains(e.target) || $('subs').contains(e.target)) return;
+        menuClosedAt = Date.now();
+        closeSubsMenu();
+    });
+
+    // --- Picture in picture, turning sideways, closing ---
+    $('pip').addEventListener('click', () => {
+        const pip = video.webkitPresentationMode === 'picture-in-picture';
+        video.webkitSetPresentationMode(pip ? 'inline' : 'picture-in-picture');
+    });
+
+    // The app turns the screen; the button shows which way it would go.
+    const landscape = window.matchMedia('(orientation: landscape)');
+    function updateRotateIcon() {
+        $('rotate').innerHTML = landscape.matches ? ICONS.exitFull : ICONS.full;
+        $('rotate').setAttribute('aria-label', landscape.matches ? 'Upright' : 'Full screen');
+        liftSubtitles();
+    }
+    updateRotateIcon();
+    landscape.addEventListener('change', updateRotateIcon);
+    $('rotate').addEventListener('click', () => post({ cmd: 'rotate' }));
+
+    $('back').addEventListener('click', () => {
+        savePosition();
+        video.pause();
+        post({ cmd: 'close' });
+    });
+
+    document.addEventListener('visibilitychange', () => { if (document.hidden) savePosition(); });
+    window.addEventListener('pagehide', savePosition);
+})();
+</script>
+</body>
+</html>

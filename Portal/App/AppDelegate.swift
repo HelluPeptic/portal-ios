@@ -27,16 +27,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     /// On a phone the app stays upright. Full-screen video gets a window of
-    /// its own from WebKit (or is presented over the page, or over the
-    /// Downloads list), and that can turn sideways, so movies still play in
-    /// landscape.
+    /// its own from WebKit, and a download plays in OfflinePlayerController
+    /// (over the page or the Downloads list); those can turn sideways, so
+    /// movies still play in landscape.
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
         guard let page = window?.rootViewController as? WebViewController else { return .allButUpsideDown }
         var presented = page.presentedViewController
         while let shown = presented {
-            if shown is AVPlayerViewController || String(describing: type(of: shown)).contains("FullScreen") {
+            if shown is AVPlayerViewController || shown is OfflinePlayerController || String(describing: type(of: shown)).contains("FullScreen") {
                 return .allButUpsideDown
             }
             presented = shown.presentedViewController

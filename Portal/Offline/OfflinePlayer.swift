@@ -1,238 +1,180 @@
 import UIKit
-import AVKit
+import WebKit
 
-/// Plays a download full screen in the iPhone's own player, from where it
-/// was left. The subtitles are separate WebVTT files, which that player
-/// can't take, so they're drawn over the picture here, under its controls.
-/// Where it got to is saved as it plays, for the site (OfflineStore's
-/// pendingProgress).
-final class OfflinePlayback: NSObject {
-    /// The one playing, kept until it's closed.
-    private static var current: OfflinePlayback?
+/// Plays a download in the app's own copy of the site's Vault player
+/// (Resources/offline-player.html: the picture fills the screen and the
+/// controls lie over it), straight from the file on the phone, so it works
+/// with no connection and never in Apple's player. Where it got to is saved
+/// as it plays, for the site (OfflineStore's pendingProgress).
+enum OfflinePlayback {
     /// Called once a player closes (WebViewController hands the site where
     /// it was left).
     static var onClose: (() -> Void)?
 
     static func play(_ item: String, from presenter: UIViewController) {
-        guard let entry = OfflineStore.shared.items.first(where: { $0.item == item && $0.state == .done }) else { return }
-        current?.finish()
-        let playback = OfflinePlayback(entry)
-        current = playback
-        playback.controller.modalPresentationStyle = .fullScreen
-        presenter.present(playback.controller, animated: true)
+        guard let entry = OfflineStore.shared.items.first(where: { $0.item == item && $0.state == .done }),
+              let page = OfflineStore.shared.playerPage() else { return }
+        presenter.present(OfflinePlayerController(entry, page: page), animated: true)
     }
+}
 
-    private let item: String
-    private let resumeAt: Double
-    private let controller = AVPlayerViewController()
-    private let player: AVPlayer
-    private let subtitleLabel = UILabel()
-    private var subtitleBottom: NSLayoutConstraint?
-    private var cues: [SubtitleCue] = []
-    private var cueIndex = 0
-    private var timeObserver: Any?
-    private var observations: [NSKeyValueObservation] = []
-    private var lastSaved = -100.0
-    private var started = false
-    private var inPictureInPicture = false
+/// The player page over the whole screen, upright or sideways. The page
+/// says what happens through the "offlinePlayer" message handler:
+/// position, subtitle, rotate and close.
+final class OfflinePlayerController: UIViewController {
+    private let entry: OfflineItem
+    private let page: URL
+    private let webView: WKWebView
+    /// The page's subtitle lines are the ones whose files are here; these
+    /// are their places in the download's own list.
+    private var subtitleIndexes: [Int] = []
+    /// Upright and sideways by hand; only sideways once "full screen" turned
+    /// it, so it stays that way until it's pressed again.
+    private var turns: UIInterfaceOrientationMask = .allButUpsideDown
     private var finished = false
 
-    private init(_ entry: OfflineItem) {
-        item = entry.item
-        resumeAt = entry.position > 10 && entry.position < entry.watchedFrom ? entry.position : 0
-        let playerItem = AVPlayerItem(url: OfflineStore.shared.videoFile(entry))
-        player = AVPlayer(playerItem: playerItem)
-        super.init()
-        controller.player = player
-        controller.delegate = self
-        controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.loadViewIfNeeded()
-        setUpSubtitles(entry)
-
-        // Starts once it's ready, from where it was left.
-        observations.append(playerItem.observe(\.status, options: [.initial, .new]) { [weak self] playerItem, _ in
-            guard playerItem.status == .readyToPlay else { return }
-            DispatchQueue.main.async { self?.begin() }
-        })
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] time in
-            self?.tick(time.seconds)
-        }
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(playedToEnd), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-        center.addObserver(self, selector: #selector(save), name: UIApplication.didEnterBackgroundNotification, object: nil)
+    init(_ entry: OfflineItem, page: URL) {
+        self.entry = entry
+        self.page = page
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.allowsPictureInPictureMediaPlayback = true
+        config.allowsAirPlayForMediaPlayback = true
+        webView = WKWebView(frame: .zero, configuration: config)
+        super.init(nibName: nil, bundle: nil)
+        config.userContentController.add(MessageRelay(self), name: "offlinePlayer")
+        modalPresentationStyle = .fullScreen
+        modalTransitionStyle = .crossDissolve
+        modalPresentationCapturesStatusBarAppearance = true
     }
 
-    private func begin() {
-        guard !started else { return }
-        started = true
-        if resumeAt > 0 {
-            player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-                self?.player.play()
-            }
-        } else {
-            player.play()
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { turns }
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    override func loadView() {
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        webView.scrollView.backgroundColor = .black
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.bounces = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.navigationDelegate = self
+        view = webView
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+        NotificationCenter.default.addObserver(self, selector: #selector(save), name: UIApplication.didEnterBackgroundNotification, object: nil)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isBeingDismissed || presentingViewController == nil { finish() }
+    }
+
+    /// What the page needs: the files are relative to it (Offline/<id>/...).
+    private func start() {
+        let store = OfflineStore.shared
+        var subtitles: [[String: Any]] = []
+        subtitleIndexes = []
+        for (index, sub) in entry.subtitles.enumerated() {
+            let file = store.subtitleFile(entry, index)
+            guard FileManager.default.fileExists(atPath: file.path) else { continue }
+            subtitleIndexes.append(index)
+            subtitles.append(["label": sub.label, "lang": sub.lang ?? "", "src": "\(entry.id)/\(file.lastPathComponent)"])
+        }
+        var chosen: Any = NSNull()
+        if let index = entry.subtitle, let line = subtitleIndexes.firstIndex(of: index) { chosen = line }
+        let config: [String: Any] = [
+            "title": entry.title,
+            "detail": entry.detail,
+            "video": "\(entry.id)/\(store.videoFile(entry).lastPathComponent)",
+            "subtitles": subtitles,
+            "subtitle": chosen,
+            // From where it was left, unless it was watched to the end.
+            "resumeAt": entry.position > 10 && entry.position < entry.watchedFrom ? entry.position : 0
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: config),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.startPlayer(\(json))", completionHandler: nil)
+    }
+
+    fileprivate func received(_ body: [String: Any]) {
+        switch body["cmd"] as? String {
+        case "position":
+            let time = (body["time"] as? NSNumber)?.doubleValue ?? 0
+            let duration = (body["duration"] as? NSNumber)?.doubleValue ?? 0
+            OfflineStore.shared.setPosition(entry.item, time, duration: duration)
+        case "subtitle":
+            let line = (body["index"] as? NSNumber)?.intValue
+            OfflineStore.shared.setSubtitle(entry.item, line.flatMap { $0 >= 0 && $0 < subtitleIndexes.count ? subtitleIndexes[$0] : nil })
+        case "rotate":
+            rotate()
+        case "close":
+            close()
+        default:
+            break
         }
     }
 
-    private func tick(_ time: Double) {
-        guard time.isFinite else { return }
-        if !cues.isEmpty { showCue(at: time) }
-        if started && abs(time - lastSaved) >= 10 { save() }
-        // Closed some way the player didn't say.
-        if started && !inPictureInPicture && controller.viewIfLoaded?.window == nil && controller.presentingViewController == nil {
-            finish()
-        }
+    /// Full screen: sideways, or back upright.
+    private func rotate() {
+        guard let scene = view.window?.windowScene else { return }
+        let sideways = scene.interfaceOrientation.isLandscape
+        turns = sideways ? .allButUpsideDown : .landscape
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: sideways ? .portrait : .landscapeRight)) { _ in }
+    }
+
+    private func close() {
+        finish()
+        turns = .portrait
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        dismiss(animated: true)
     }
 
     @objc private func save() {
-        guard started, let current = player.currentItem else { return }
-        let time = current.currentTime().seconds
-        guard time.isFinite else { return }
-        lastSaved = time
-        OfflineStore.shared.setPosition(item, time, duration: current.duration.seconds)
-    }
-
-    @objc private func playedToEnd() {
-        guard let current = player.currentItem else { return }
-        let duration = current.duration.seconds
-        guard duration.isFinite else { return }
-        lastSaved = duration
-        OfflineStore.shared.setPosition(item, duration, duration: duration)
+        webView.evaluateJavaScript("window.savePosition && window.savePosition()", completionHandler: nil)
     }
 
     private func finish() {
         guard !finished else { return }
         finished = true
-        save()
-        player.pause()
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
-        timeObserver = nil
-        observations.removeAll()
         NotificationCenter.default.removeObserver(self)
-        if Self.current === self { Self.current = nil }
-        Self.onClose?()
-    }
-
-    // MARK: - Subtitles
-
-    private func setUpSubtitles(_ entry: OfflineItem) {
-        guard let index = entry.subtitle, index < entry.subtitles.count,
-              let data = try? Data(contentsOf: OfflineStore.shared.subtitleFile(entry, index)),
-              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1),
-              let overlay = controller.contentOverlayView else { return }
-        cues = SubtitleCue.parse(webVTT: text)
-        guard !cues.isEmpty else { return }
-        subtitleLabel.numberOfLines = 0
-        subtitleLabel.textAlignment = .center
-        subtitleLabel.textColor = .white
-        subtitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        // An outline of sorts, like the site's subtitles on a TV.
-        subtitleLabel.layer.shadowColor = UIColor.black.cgColor
-        subtitleLabel.layer.shadowOpacity = 1
-        subtitleLabel.layer.shadowRadius = 2.5
-        subtitleLabel.layer.shadowOffset = .zero
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        overlay.addSubview(subtitleLabel)
-        let bottom = subtitleLabel.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -24)
-        subtitleBottom = bottom
-        NSLayoutConstraint.activate([
-            subtitleLabel.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            subtitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: overlay.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            bottom
-        ])
-        observations.append(controller.observe(\.videoBounds, options: [.initial, .new]) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.placeSubtitles() }
-        })
-    }
-
-    /// Near the bottom of the picture itself, not of the screen (in portrait
-    /// the picture sits in the middle), and sized to it.
-    private func placeSubtitles() {
-        guard let overlay = controller.contentOverlayView, let view = controller.viewIfLoaded else { return }
-        let video = overlay.convert(controller.videoBounds, from: view)
-        guard video.height > 0 else { return }
-        subtitleBottom?.constant = -(max(0, overlay.bounds.maxY - video.maxY) + video.height * 0.06)
-        subtitleLabel.font = .systemFont(ofSize: max(15, min(30, video.height * 0.055)), weight: .semibold)
-    }
-
-    private func showCue(at time: Double) {
-        // From the last one shown, since time mostly goes forward.
-        if cueIndex >= cues.count || cues[cueIndex].start > time { cueIndex = 0 }
-        while cueIndex + 1 < cues.count && cues[cueIndex + 1].start <= time { cueIndex += 1 }
-        let cue = cues[cueIndex]
-        let text = cue.start <= time && time < cue.end ? cue.text : ""
-        if subtitleLabel.text != text { subtitleLabel.text = text }
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "offlinePlayer")
+        OfflinePlayback.onClose?()
     }
 }
 
-extension OfflinePlayback: AVPlayerViewControllerDelegate {
-    func playerViewController(_ playerViewController: AVPlayerViewController,
-                              willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator) {
-        coordinator.animate(alongsideTransition: nil) { [weak self] context in
-            guard let self, !context.isCancelled, !self.inPictureInPicture else { return }
-            self.finish()
-        }
+extension OfflinePlayerController: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        start()
     }
 
-    func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        inPictureInPicture = true
-    }
-
-    func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        inPictureInPicture = false
-        if playerViewController.viewIfLoaded?.window == nil { finish() }
-    }
-
-    // Back from picture in picture to full screen.
-    func playerViewController(_ playerViewController: AVPlayerViewController,
-                              restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
-        guard playerViewController.presentingViewController == nil,
-              var top = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow?.rootViewController }).first else {
-            return completionHandler(true)
-        }
-        while let presented = top.presentedViewController { top = presented }
-        top.present(playerViewController, animated: true) { completionHandler(true) }
+    // Only the page itself; nothing else opens in here.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.request.url?.isFileURL == true ? .allow : .cancel)
     }
 }
 
-/// One line (or two) of subtitles, from a WebVTT file.
-struct SubtitleCue {
-    let start: Double
-    let end: Double
-    let text: String
+/// The content controller keeps its handlers, so this passes messages on
+/// without keeping the player.
+private final class MessageRelay: NSObject, WKScriptMessageHandler {
+    private weak var player: OfflinePlayerController?
 
-    static func parse(webVTT text: String) -> [SubtitleCue] {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        var cues: [SubtitleCue] = []
-        for block in normalized.components(separatedBy: "\n\n") {
-            let lines = block.split(separator: "\n").map(String.init)
-            guard let timing = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
-            let times = lines[timing].components(separatedBy: "-->")
-            let endPart = times.count == 2 ? times[1].trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) : nil
-            guard let start = seconds(times[0]), let endPart, let end = seconds(endPart) else { continue }
-            let body = lines[(timing + 1)...].joined(separator: "\n")
-                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-                .replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-                .replacingOccurrences(of: "&amp;", with: "&")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !body.isEmpty { cues.append(SubtitleCue(start: start, end: end, text: body)) }
-        }
-        return cues.sorted { $0.start < $1.start }
+    init(_ player: OfflinePlayerController) {
+        self.player = player
     }
 
-    /// "01:02:03.456", "02:03.456" or "02:03,456" in seconds.
-    private static func seconds(_ string: String) -> Double? {
-        let parts = string.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".").split(separator: ":")
-        guard parts.count == 2 || parts.count == 3 else { return nil }
-        var total = 0.0
-        for part in parts {
-            guard let value = Double(part) else { return nil }
-            total = total * 60 + value
-        }
-        return total
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any] else { return }
+        player?.received(body)
     }
 }
