@@ -22,6 +22,17 @@ final class WebViewController: UIViewController {
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
+    /// The Vault player is full screen (ScreenBridge): sideways either way
+    /// round, without the clock, battery and home bar.
+    private(set) var playerFullScreen = false
+
+    override var prefersStatusBarHidden: Bool { playerFullScreen }
+    override var prefersHomeIndicatorAutoHidden: Bool { playerFullScreen }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        return playerFullScreen ? .landscape : .portrait
+    }
+
     override func loadView() {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
@@ -36,6 +47,7 @@ final class WebViewController: UIViewController {
         config.userContentController.addScriptMessageHandler(OfflineBridge.shared, contentWorld: .page, name: "portalDownloads")
         config.userContentController.addScriptMessageHandler(WidgetBridge.shared, contentWorld: .page, name: "portalWidget")
         config.userContentController.addScriptMessageHandler(LiveBridge.shared, contentWorld: .page, name: "portalLive")
+        config.userContentController.addScriptMessageHandler(ScreenBridge.shared, contentWorld: .page, name: "portalScreen")
         let marker = WKUserScript(source: "window.PortalApp = { version: '\(AppInfo.version)', build: \(AppInfo.build) }; document.documentElement.classList.add('portal-app');",
                                   injectionTime: .atDocumentStart, forMainFrameOnly: false)
         config.userContentController.addUserScript(marker)
@@ -117,6 +129,7 @@ final class WebViewController: UIViewController {
             self?.updateLoadingBar(Float(webView.estimatedProgress))
         })
         banner.onAction = { [weak self] in self?.bannerAction() }
+        ScreenBridge.shared.setFullScreen = { [weak self] on in self?.setPlayerFullScreen(on) }
         OfflineBridge.shared.showList = { [weak self] in self?.showDownloads() }
         OfflineBridge.shared.play = { [weak self] item in
             guard let self else { return }
@@ -138,6 +151,21 @@ final class WebViewController: UIViewController {
         loadingCover.show()
         webView.load(URLRequest(url: startURL()))
         checkAppStatus()
+    }
+
+    /// Turns sideways for the Vault player's full screen (the way the phone
+    /// is already held, else turned to the left), or back upright.
+    func setPlayerFullScreen(_ on: Bool) {
+        guard on != playerFullScreen else { return }
+        playerFullScreen = on
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        guard let scene = view.window?.windowScene else { return }
+        let held = UIDevice.current.orientation
+        let sideways: UIInterfaceOrientationMask = held == .landscapeRight ? .landscapeLeft : .landscapeRight
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: on ? sideways : .portrait)) { _ in }
     }
 
     // Reopens where you were last time, as long as that was on the site.
@@ -403,6 +431,11 @@ extension WebViewController: WKNavigationDelegate {
         download.delegate = self
     }
 
+    // A new page never starts sideways: only the player turns the app.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        setPlayerFullScreen(false)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         errorView?.removeFromSuperview()
         errorView = nil
@@ -437,6 +470,7 @@ extension WebViewController: WKNavigationDelegate {
 
     // The page's process can be killed in the background (memory); bring it back.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        setPlayerFullScreen(false)
         loadingCover.show()
         webView.reload()
     }

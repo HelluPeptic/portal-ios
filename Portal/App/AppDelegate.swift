@@ -26,14 +26,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         OfflineStore.shared.backgroundCompletion = completionHandler
     }
 
-    /// On a phone the app stays upright. Full-screen video gets a window of
-    /// its own from WebKit, and a download plays in OfflinePlayerController
-    /// (over the page or the Downloads list); those can turn sideways, so
-    /// movies still play in landscape.
+    /// On a phone the app stays upright, except while the Vault player is
+    /// full screen (sideways, either way round). Full-screen video gets a
+    /// window of its own from WebKit, and a download plays in
+    /// OfflinePlayerController (over the page or the Downloads list); those
+    /// can turn sideways, so movies still play in landscape.
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
         guard let page = window?.rootViewController as? WebViewController else { return .allButUpsideDown }
+        if page.playerFullScreen && page.presentedViewController == nil { return .landscape }
         var presented = page.presentedViewController
         while let shown = presented {
             if shown is AVPlayerViewController || shown is OfflinePlayerController || String(describing: type(of: shown)).contains("FullScreen") {
